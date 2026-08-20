@@ -5,7 +5,9 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 
+from packages.agent_runtime import RunStatus
 from packages.scheduler import Scheduler, ScheduleStatus, load_schedule
+from services.bootstrap import build_runtime, demo_identity
 
 
 def _require(condition: bool, message: str) -> None:
@@ -30,23 +32,37 @@ def main() -> int:
     scheduler = Scheduler(notifier=sink)
     scheduler.register(definition)
     trigger_time = datetime(2030, 1, 1, 2, 0, tzinfo=UTC)
+    runtime, _audit = build_runtime()
+    execution_count = 0
+
+    def execute_agent(_definition, _key):  # type: ignore[no-untyped-def]
+        nonlocal execution_count
+        execution_count += 1
+        result = runtime.run(
+            "Provide the order status for the scheduled briefing.",
+            demo_identity(),
+            order_id="SO-1001",
+        )
+        _require(result.status is RunStatus.SUCCEEDED, "scheduled Agent execution failed")
+        return result.message
 
     finding = scheduler.trigger(
         definition.id,
         trigger_time,
-        lambda _definition, _key: "inventory finding",
+        execute_agent,
         finding=True,
     )
     duplicate = scheduler.trigger(
         definition.id,
         trigger_time,
-        lambda _definition, _key: "must not execute twice",
+        execute_agent,
         finding=True,
     )
     _require(finding.status is ScheduleStatus.SUCCEEDED, "finding run did not succeed")
     _require(finding.notification_sent, "finding run did not notify")
     _require(finding == duplicate, "duplicate delivery created a second effective run")
     _require(len(sink.events) == 1, "duplicate delivery sent a duplicate notification")
+    _require(execution_count == 1, "duplicate delivery executed the Agent twice")
 
     quiet = replace(definition, id="quiet-order-status-demo", version="0.1.1")
     scheduler.register(quiet)
