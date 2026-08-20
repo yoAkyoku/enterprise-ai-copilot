@@ -31,7 +31,13 @@ from packages.agent_runtime import (
 from packages.agent_runtime.models import AuditEvent, ToolCallRequest
 from packages.contracts import validate_agent_manifest, validate_plugin, validate_repository
 from packages.plugins import PluginInstallError, PluginRegistry
-from packages.scheduler import InMemoryJobQueue, ScheduleDefinition, Scheduler, ScheduleStatus
+from packages.scheduler import (
+    InMemoryJobQueue,
+    RedisJobQueue,
+    ScheduleDefinition,
+    Scheduler,
+    ScheduleStatus,
+)
 from services.api.app import create_app
 from services.bootstrap import build_runtime
 
@@ -319,6 +325,21 @@ limits:
         self.assertEqual(received.payload["tenant_id"], "tenant-a")
         queue.ack(received)
         self.assertIsNone(queue.receive())
+
+    def test_redis_decode_normalizes_bytes_stream_receipt(self) -> None:
+        job = RedisJobQueue._decode(
+            (
+                b"1740000000000-0",
+                {
+                    b"job_id": b"job-1",
+                    b"payload": b'{"trace_id":"trace-1"}',
+                    b"enqueued_at": b"1740000000.0",
+                },
+            )
+        )
+        self.assertEqual(job.receipt, "1740000000000-0")
+        self.assertEqual(job.id, "job-1")
+        self.assertEqual(job.payload, {"trace_id": "trace-1"})
 
     def test_scheduler_blocks_unapproved_write_mode(self) -> None:
         definition = ScheduleDefinition(

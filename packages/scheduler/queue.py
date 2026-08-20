@@ -168,7 +168,8 @@ class RedisJobQueue:
 
     @staticmethod
     def _decode(message: tuple[object, object]) -> Job:
-        receipt = str(message[0])
+        raw_receipt = message[0]
+        receipt = raw_receipt.decode() if isinstance(raw_receipt, bytes) else str(raw_receipt)
         fields = message[1]
         if not isinstance(fields, dict):
             raise QueueError("Redis job fields are invalid")
