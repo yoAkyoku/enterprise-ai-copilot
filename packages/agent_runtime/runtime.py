@@ -6,6 +6,8 @@ import hashlib
 import time
 from uuid import uuid4
 
+from packages.observability import TraceExporter, TraceRecord, new_span_id
+
 from .audit import AuditLog
 from .mcp import McpGateway
 from .models import (
@@ -18,7 +20,6 @@ from .models import (
     ToolDefinition,
 )
 from .policy import PolicyEngine
-from packages.observability import TraceExporter, TraceRecord, new_span_id
 
 
 class AgentRuntime:

@@ -4,8 +4,8 @@ from .metrics import MetricsRegistry
 from .tracing import (
     InMemoryTraceExporter,
     OtlpHttpTraceExporter,
-    TraceExportError,
     TraceExporter,
+    TraceExportError,
     TraceRecord,
     new_span_id,
 )

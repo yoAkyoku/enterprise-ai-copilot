@@ -29,7 +29,6 @@ class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
         newurl: str,
     ) -> None:
         del request, fp, code, msg, headers, newurl
-        return None
 
 
 def is_disallowed_host(host: str) -> bool:

@@ -4,15 +4,16 @@ import json
 import time
 import unittest
 
+from fastapi.testclient import TestClient
+
 from packages.agent_runtime import RunStatus
 from packages.observability import (
     InMemoryTraceExporter,
     OtlpHttpTraceExporter,
     TraceRecord,
 )
-from services.bootstrap import build_runtime, demo_identity
 from services.api.app import create_app
-from fastapi.testclient import TestClient
+from services.bootstrap import build_runtime, demo_identity
 
 
 class TracingTests(unittest.TestCase):
@@ -83,7 +84,7 @@ class TracingTests(unittest.TestCase):
                 end_time_unix_nano=now + 1,
                 attributes={"api_key": "must-not-be-exported"},
             )
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):
             TraceRecord(
                 trace_id="trace-test-4",
                 span_id="span-test-4",

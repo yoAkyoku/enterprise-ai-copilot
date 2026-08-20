@@ -52,7 +52,7 @@ class TraceRecord:
             raise ValueError("trace span timestamps are invalid")
         for key, value in self.attributes.items():
             if not isinstance(key, str) or not isinstance(value, (str, int, bool)):
-                raise ValueError("trace attributes must be strings, integers or booleans")
+                raise TypeError("trace attributes must be strings, integers or booleans")
             if (
                 not _SAFE_ATTRIBUTE_KEY.fullmatch(key)
                 or _SENSITIVE_ATTRIBUTE_KEY.search(key)
