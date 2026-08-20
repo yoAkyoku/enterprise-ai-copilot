@@ -15,6 +15,7 @@ Before starting the API, provision and test:
 - a reviewed remote MCP/ERP connector that enforces trusted identity headers
   and returns provenance (`source_id`, `observed_at`, `external_ref`);
 - Redis for distributed rate limits and scheduled worker queue delivery;
+- an OTLP/HTTP trace collector with an HTTPS allowlisted endpoint;
 - an S3-compatible bucket with server-side encryption and a lifecycle policy;
 - ClamAV or an equivalent reviewed scanner reachable through the clamd protocol;
 - a persistent volume for `/app/.data`, encrypted backups and a tested restore;
@@ -40,7 +41,8 @@ Place the API behind a TLS reverse proxy; do not expose the unauthenticated
 development port directly to the public Internet. The production environment
 must set `AGENT_PLATFORM_ENV=production`, `AGENT_PROVIDER_MODE=remote`,
 `AGENT_AUTH_MODE=oidc_jwks` (or reviewed `jwt_hs256`), S3 storage, malware
-scanning, positive retention and `AGENT_REDIS_URL`. Startup fails closed when
+scanning, positive retention, `AGENT_REDIS_URL` and
+`AGENT_TRACE_ENDPOINT`/`AGENT_TRACE_ALLOWED_HOSTS`. Startup fails closed when
 these requirements are missing.
 
 ## Readiness and migration
@@ -56,10 +58,10 @@ Invoke-WebRequest http://127.0.0.1:8000/health
 Invoke-WebRequest http://127.0.0.1:8000/ready
 ```
 
-The API exposes authenticated `/metrics`. Forward only privacy-safe metrics to
-the monitoring system. Preserve `X-Request-Id`, trace, run, workspace and
-audit identifiers in the log/trace pipeline without recording tokens, image
-bytes or raw sensitive arguments.
+The API exposes authenticated `/metrics`. Forward only privacy-safe metrics and
+OTLP spans to the monitoring system. Preserve `X-Request-Id`, trace, run,
+workspace and audit identifiers in the log/trace pipeline without recording
+tokens, image bytes or raw sensitive arguments.
 
 ## Backup, rollback and release evidence
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import urllib.parse
+import urllib.request
 from collections.abc import Sequence
 
 _BLOCKED_HOSTNAMES = {
@@ -13,6 +14,22 @@ _BLOCKED_HOSTNAMES = {
     "metadata.google.internal",
     "instance-data.ec2.internal",
 }
+
+
+class NoRedirectHandler(urllib.request.HTTPRedirectHandler):
+    """Prevent an approved HTTPS request from escaping to a new host."""
+
+    def redirect_request(
+        self,
+        request: urllib.request.Request,
+        fp: object,
+        code: int,
+        msg: str,
+        headers: object,
+        newurl: str,
+    ) -> None:
+        del request, fp, code, msg, headers, newurl
+        return None
 
 
 def is_disallowed_host(host: str) -> bool:

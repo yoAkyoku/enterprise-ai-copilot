@@ -15,9 +15,13 @@ from packages.agent_runtime import (
     PolicyEngine,
     StreamableHttpMcpGateway,
 )
+from packages.observability import TraceExporter
 
 
-def build_runtime(audit: AuditLog | None = None) -> tuple[AgentRuntime, AuditLog]:
+def build_runtime(
+    audit: AuditLog | None = None,
+    trace_exporter: TraceExporter | None = None,
+) -> tuple[AgentRuntime, AuditLog]:
     seed_path = Path(__file__).resolve().parents[1] / "data" / "demo" / "orders.json"
     if seed_path.is_file():
         rows = json.loads(seed_path.read_text(encoding="utf-8"))
@@ -45,7 +49,15 @@ def build_runtime(audit: AuditLog | None = None) -> tuple[AgentRuntime, AuditLog
             timeout_seconds=float(os.getenv("AGENT_MCP_TIMEOUT_SECONDS", "10")),
         )
     audit_log = audit or AuditLog()
-    return AgentRuntime(PolicyEngine(gateway.definitions), gateway, audit_log), audit_log
+    return (
+        AgentRuntime(
+            PolicyEngine(gateway.definitions),
+            gateway,
+            audit_log,
+            trace_exporter=trace_exporter,
+        ),
+        audit_log,
+    )
 
 
 def demo_identity() -> IdentityContext:

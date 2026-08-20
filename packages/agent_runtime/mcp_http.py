@@ -9,12 +9,7 @@ import urllib.request
 from collections.abc import Mapping, Sequence
 
 from .models import ToolCallRequest, ToolDefinition, ToolResult
-from .network import validated_https_endpoint
-
-
-class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
-    def redirect_request(self, request, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
-        return None
+from .network import NoRedirectHandler, validated_https_endpoint
 
 
 class StreamableHttpMcpGateway:
@@ -49,7 +44,7 @@ class StreamableHttpMcpGateway:
     def health(self) -> dict[str, str]:
         request = urllib.request.Request(self.endpoint, headers=self._headers(), method="GET")
         try:
-            opener = urllib.request.build_opener(_NoRedirectHandler)
+            opener = urllib.request.build_opener(NoRedirectHandler)
             with opener.open(request, timeout=self._timeout_seconds) as response:
                 healthy = 200 <= response.status < 300
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
@@ -86,7 +81,7 @@ class StreamableHttpMcpGateway:
             method="POST",
         )
         try:
-            opener = urllib.request.build_opener(_NoRedirectHandler)
+            opener = urllib.request.build_opener(NoRedirectHandler)
             with opener.open(outgoing, timeout=self._timeout_seconds) as response:
                 raw = response.read(2 * 1024 * 1024 + 1)
         except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):

@@ -6,7 +6,8 @@ The repository is on the production-track path toward a formal self-hosted
 release. It currently provides a policy-checked Customer Service Agent, a
 tenant-scoped operations console, durable run/audit/approval metadata, bounded
 image evidence storage, Vision/OCR and remote MCP boundaries, Redis queue/rate
-limit adapters, and authenticated metrics. The default demo still uses a fake
+limit adapters, authenticated metrics and a replaceable OTLP trace exporter.
+The default demo still uses a fake
 ERP MCP tool and synthetic data so the public test suite never needs private
 services.
 
@@ -52,6 +53,10 @@ are not silently claimed as executed in the synthetic release.
 Multi-replica staging/production also requires `AGENT_REDIS_URL`; the API uses
 an atomic Redis limiter for upload and Vision/OCR abuse controls. Development
 without Redis intentionally uses an in-process limiter.
+
+Production also requires `AGENT_TRACE_ENDPOINT` and an exact
+`AGENT_TRACE_ALLOWED_HOSTS` entry. Trace attributes are bounded and reject
+credential, token, prompt, image and raw-content fields before export.
 
 Production attachment bytes use the S3-compatible adapter (`AGENT_ATTACHMENT_STORAGE=s3`)
 with server-side encryption, exact endpoint allowlisting when a custom endpoint

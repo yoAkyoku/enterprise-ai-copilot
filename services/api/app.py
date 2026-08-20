@@ -50,7 +50,7 @@ from packages.attachments import (
     MalwareScanUnavailable,
 )
 from packages.contracts import validate_repository
-from packages.observability import MetricsRegistry
+from packages.observability import MetricsRegistry, TraceExporter, TraceRecord, new_span_id
 from packages.vision import (
     OpenAICompatibleVisionProvider,
     VisionAnalysisError,
@@ -111,6 +111,7 @@ class RunService:
         identity: IdentityContext,
         idempotency_key: str | None,
         request_id: str | None = None,
+        trace_id: str | None = None,
     ) -> RunResult:
         if idempotency_key:
             key = (
@@ -130,7 +131,11 @@ class RunService:
                     self.idempotency[key] = persisted.result.run_id
                     return persisted.result
         result = self.runtime.run(
-            request.query, identity, order_id=request.order_id, request_id=request_id
+            request.query,
+            identity,
+            order_id=request.order_id,
+            request_id=request_id,
+            trace_id=trace_id,
         )
         stored = StoredRun(result=result, identity=identity, idempotency_key=idempotency_key)
         self.runs[result.run_id] = stored
@@ -308,6 +313,7 @@ def create_app(
     analysis_limiter: RateLimiter | None = None,
     rate_limit_mode: str = "in_memory",
     metrics: MetricsRegistry | None = None,
+    trace_exporter: TraceExporter | None = None,
 ) -> FastAPI:
     if auth_mode not in {"bearer", "headers", "jwt_hs256", "oidc_jwks"}:
         raise ValueError("auth_mode must be bearer, jwt_hs256, oidc_jwks or headers")
@@ -349,7 +355,9 @@ def create_app(
             candidate if _SAFE_REQUEST_ID.fullmatch(candidate) else f"req-{uuid.uuid4().hex}"
         )
         request.state.request_id = request_id
+        request.state.trace_id = f"trace-{uuid.uuid4().hex}"
         started = time.perf_counter()
+        trace_started = time.time_ns()
         try:
             response = await call_next(request)
         except Exception:
@@ -358,6 +366,30 @@ def create_app(
                 {"method": request.method, "status": "500"},
             )
             raise
+        if trace_exporter is not None:
+            try:
+                route = request.scope.get("route")
+                route_template = getattr(route, "path", None)
+                if not isinstance(route_template, str) or not route_template.startswith("/"):
+                    route_template = "unmatched"
+                trace_exporter.export(
+                    TraceRecord(
+                        trace_id=request.state.trace_id,
+                        span_id=new_span_id(),
+                        name="http.request",
+                        start_time_unix_nano=trace_started,
+                        end_time_unix_nano=time.time_ns(),
+                        attributes={
+                            "http_method": request.method,
+                            "http_route": route_template,
+                            "http_status": response.status_code,
+                            "request_id": request_id,
+                        },
+                    )
+                )
+            except Exception as exc:  # noqa: BLE001 - tracing cannot break API responses
+                metrics_registry.increment("trace_export_failures_total")
+                request.state.trace_export_error = type(exc).__name__
         metrics_registry.increment(
             "http_requests_total",
             {"method": request.method, "status": str(response.status_code)},
@@ -446,6 +478,7 @@ def create_app(
             else "0",
             "rate_limit_mode": rate_limit_mode,
             "approvals": "configured" if approval_service is not None else "unavailable",
+            "trace_exporter": "configured" if trace_exporter is not None else "unavailable",
         }
 
     @application.get("/metrics", response_class=PlainTextResponse)
@@ -475,6 +508,7 @@ def create_app(
             "malware_scanning": attachments is not None and attachments.requires_scan,
             "attachment_retention": attachments is not None and attachments.retention_seconds > 0,
             "distributed_rate_limit": rate_limit_mode == "redis",
+            "trace_exporter": trace_exporter is not None,
         }
         ready_status = (
             all(checks.values()) if resolved_platform_env in {"staging", "production"} else True
@@ -650,6 +684,7 @@ def create_app(
             identity,
             idempotency_key,
             request_id=getattr(http_request.state, "request_id", None),
+            trace_id=getattr(http_request.state, "trace_id", None),
         )
         metrics_registry.increment("agent_runs_total", {"status": result.status.value})
         return _result_response(result)
@@ -930,7 +965,20 @@ def build_default_app() -> FastAPI:
     data_dir = Path(os.getenv("AGENT_DATA_DIR", str(root / ".data")))
     audit_store = SqliteAuditStore(data_dir / "agent-platform.sqlite3")
     audit = AuditLog(store=audit_store)
-    runtime, _ = build_runtime(audit=audit)
+    trace_exporter = None
+    trace_endpoint = os.getenv("AGENT_TRACE_ENDPOINT", "").strip()
+    if trace_endpoint:
+        from packages.observability import OtlpHttpTraceExporter
+
+        trace_exporter = OtlpHttpTraceExporter(
+            trace_endpoint,
+            allowed_hosts=os.getenv("AGENT_TRACE_ALLOWED_HOSTS", "").split(","),
+            bearer_token=os.getenv("AGENT_TRACE_BEARER_TOKEN") or None,
+            timeout_seconds=float(os.getenv("AGENT_TRACE_TIMEOUT_SECONDS", "5")),
+        )
+    elif platform_env in {"staging", "production"}:
+        raise RuntimeError("staging and production require AGENT_TRACE_ENDPOINT")
+    runtime, _ = build_runtime(audit=audit, trace_exporter=trace_exporter)
     attachment_root = Path(os.getenv("AGENT_ATTACHMENT_ROOT", str(data_dir / "attachments")))
     attachment_db = Path(os.getenv("AGENT_ATTACHMENT_DB", str(data_dir / "attachments.sqlite3")))
     max_bytes = int(os.getenv("AGENT_ATTACHMENT_MAX_BYTES", "10485760"))
@@ -1099,6 +1147,7 @@ def build_default_app() -> FastAPI:
         vision=vision_service,
         run_store=run_store,
         approval_service=approval_service,
+        trace_exporter=trace_exporter,
         upload_rate_limit=upload_rate_limit,
         analysis_rate_limit=analysis_rate_limit,
         upload_limiter=upload_limiter,

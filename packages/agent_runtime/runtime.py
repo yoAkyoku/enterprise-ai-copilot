@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import time
 from uuid import uuid4
 
 from .audit import AuditLog
@@ -16,16 +18,24 @@ from .models import (
     ToolDefinition,
 )
 from .policy import PolicyEngine
+from packages.observability import TraceExporter, TraceRecord, new_span_id
 
 
 class AgentRuntime:
     agent_id = "customer-service-agent"
     tool_name = "erp.get_order_status"
 
-    def __init__(self, policy: PolicyEngine, gateway: McpGateway, audit: AuditLog) -> None:
+    def __init__(
+        self,
+        policy: PolicyEngine,
+        gateway: McpGateway,
+        audit: AuditLog,
+        trace_exporter: TraceExporter | None = None,
+    ) -> None:
         self._policy = policy
         self._gateway = gateway
         self._audit = audit
+        self._trace_exporter = trace_exporter
 
     def gateway_health(self) -> dict[str, str]:
         """Expose transport health without exposing gateway credentials."""
@@ -55,9 +65,10 @@ class AgentRuntime:
         *,
         order_id: str | None = None,
         request_id: str | None = None,
+        trace_id: str | None = None,
     ) -> RunResult:
         request_id = request_id or f"req-{uuid4()}"
-        trace_id = f"trace-{uuid4()}"
+        trace_id = trace_id or f"trace-{uuid4()}"
         run_id = f"run-{uuid4()}"
 
         self._audit.append(
@@ -134,7 +145,16 @@ class AgentRuntime:
             arguments={"order_id": order_id.strip()},
             idempotency_key=f"{run_id}:{self.tool_name}:{order_id.strip()}",
         )
+        tool_started = time.time_ns()
         tool_result = self._gateway.call(tool_request)
+        self._export_tool_span(
+            request_id=request_id,
+            trace_id=trace_id,
+            run_id=run_id,
+            identity=identity,
+            started_at=tool_started,
+            success=tool_result.success,
+        )
         self._audit.append(
             AuditEvent(
                 event_type="tool.completed",
@@ -202,6 +222,50 @@ class AgentRuntime:
             )
         )
         return result
+
+    def _export_tool_span(
+        self,
+        *,
+        request_id: str,
+        trace_id: str,
+        run_id: str,
+        identity: IdentityContext,
+        started_at: int,
+        success: bool,
+    ) -> None:
+        if self._trace_exporter is None:
+            return
+        try:
+            self._trace_exporter.export(
+                TraceRecord(
+                    trace_id=trace_id,
+                    span_id=new_span_id(),
+                    name="agent.tool",
+                    start_time_unix_nano=started_at,
+                    end_time_unix_nano=time.time_ns(),
+                    attributes={
+                        "request_id": request_id,
+                        "run_id": run_id,
+                        "tool": self.tool_name,
+                        "success": success,
+                        "workspace_hash": hashlib.sha256(
+                            identity.workspace_id.encode("utf-8")
+                        ).hexdigest()[:16],
+                    },
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - trace failure is retained, not propagated
+            self._audit.append(
+                AuditEvent(
+                    event_type="trace.export_failed",
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    run_id=run_id,
+                    workspace_id=identity.workspace_id,
+                    agent_id=self.agent_id,
+                    payload={"error_type": type(exc).__name__, "tool": self.tool_name},
+                )
+            )
 
     def _finish(
         self,
