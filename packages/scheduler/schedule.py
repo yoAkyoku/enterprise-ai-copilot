@@ -9,10 +9,11 @@ deployment adapter concern.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
+from typing import Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
@@ -25,6 +26,20 @@ class ScheduleStatus(StrEnum):
     PAUSED = "paused"
     EXPIRED = "expired"
     BLOCKED = "blocked"
+    CANCELLED = "cancelled"
+
+
+class NotificationSink(Protocol):
+    """Explicitly injected destination for schedule notifications."""
+
+    def send(
+        self,
+        *,
+        channel: str,
+        schedule: "ScheduleDefinition",
+        run: "ScheduleRun",
+    ) -> None:
+        """Deliver one already-authorized notification."""
 
 
 @dataclass(frozen=True)
@@ -43,6 +58,8 @@ class ScheduleDefinition:
     catch_up: bool = False
     permissions_mode: str = "read_only"
     expires_at: str | None = None
+    notify_channel: str | None = None
+    notify_only_if: str = "finding_or_failure"
 
     def timezone(self) -> ZoneInfo:
         try:
@@ -91,6 +108,8 @@ class ScheduleRun:
     status: ScheduleStatus
     attempts: int
     message: str
+    notification_sent: bool = False
+    notification_error: str | None = None
 
 
 class CronExpression:
@@ -144,12 +163,14 @@ def load_schedule(path: str | Path) -> ScheduleDefinition:
     schedule = raw.get("schedule") or {}
     run = raw.get("run") or {}
     permissions = raw.get("permissions") or {}
+    notify = raw.get("notify") or {}
     if (
         not isinstance(schedule, dict)
         or not isinstance(run, dict)
         or not isinstance(permissions, dict)
+        or not isinstance(notify, dict)
     ):
-        raise TypeError("schedule, run and permissions must be mappings")
+        raise TypeError("schedule, run, permissions and notify must be mappings")
     return ScheduleDefinition(
         id=str(raw["id"]),
         version=str(raw["version"]),
@@ -165,17 +186,21 @@ def load_schedule(path: str | Path) -> ScheduleDefinition:
         catch_up=bool(run.get("catch_up", False)),
         permissions_mode=str(permissions.get("mode", "read_only")),
         expires_at=schedule.get("expires_at"),
+        notify_channel=str(notify["channel"]) if notify.get("channel") is not None else None,
+        notify_only_if=str(notify.get("only_if", "finding_or_failure")),
     )
 
 
 class Scheduler:
     """Synchronous scheduler facade with idempotent run history."""
 
-    def __init__(self) -> None:
+    def __init__(self, notifier: NotificationSink | None = None) -> None:
         self._definitions: dict[str, ScheduleDefinition] = {}
         self._history: dict[str, ScheduleRun] = {}
         self._paused: set[str] = set()
         self._active: dict[str, int] = {}
+        self._cancelled: set[str] = set()
+        self._notifier = notifier
 
     def register(self, definition: ScheduleDefinition) -> None:
         if (
@@ -185,6 +210,12 @@ class Scheduler:
             raise ValueError("schedule replacement requires an explicit version migration")
         if definition.max_concurrency <= 0 or definition.retry_limit < 0:
             raise ValueError("invalid schedule concurrency or retry limit")
+        if definition.notify_only_if not in {"always", "finding_or_failure", "failure"}:
+            raise ValueError("invalid schedule notification condition")
+        if definition.notify_channel is not None and (
+            not definition.notify_channel.strip() or len(definition.notify_channel) > 64
+        ):
+            raise ValueError("invalid schedule notification channel")
         definition.timezone()
         if definition.schedule_type == "cron" and definition.expression:
             CronExpression(definition.expression)
@@ -197,6 +228,13 @@ class Scheduler:
     def resume(self, schedule_id: str) -> None:
         self._require(schedule_id)
         self._paused.discard(schedule_id)
+
+    def cancel(self, idempotency_key: str) -> None:
+        """Signal a queued or retrying run to stop before its next tool call."""
+
+        if not idempotency_key or len(idempotency_key) > 256:
+            raise ValueError("invalid schedule idempotency key")
+        self._cancelled.add(idempotency_key)
 
     def history(self, schedule_id: str | None = None) -> list[ScheduleRun]:
         values = list(self._history.values())
@@ -211,6 +249,7 @@ class Scheduler:
         executor: Callable[[ScheduleDefinition, str], str],
         *,
         approval_granted: bool = False,
+        finding: bool = False,
     ) -> ScheduleRun:
         definition = self._require(schedule_id)
         started = datetime.now(UTC)
@@ -242,6 +281,16 @@ class Scheduler:
         key = f"{schedule_id}:{scheduled.isoformat()}"
         if key in self._history:
             return self._history[key]
+        if key in self._cancelled:
+            return self._record(
+                schedule_id,
+                "cancelled",
+                started,
+                started,
+                0,
+                "schedule was cancelled",
+                scheduled,
+            )
         if self._active.get(schedule_id, 0) >= definition.max_concurrency:
             return self._record(
                 schedule_id, "skipped", started, started, 0, "concurrency limit reached", scheduled
@@ -250,17 +299,28 @@ class Scheduler:
         attempts = 0
         try:
             while attempts <= definition.retry_limit:
+                if key in self._cancelled:
+                    return self._record(
+                        schedule_id,
+                        "cancelled",
+                        started,
+                        datetime.now(UTC),
+                        attempts,
+                        "schedule was cancelled",
+                        scheduled,
+                    )
                 attempts += 1
                 try:
                     message = executor(definition, key)
                     finished = datetime.now(UTC)
-                    return self._record(
+                    run = self._record(
                         schedule_id, "succeeded", started, finished, attempts, message, scheduled
                     )
+                    return self._notify(definition, run, finding=finding)
                 except Exception:  # noqa: BLE001 - scheduler records controlled failure
                     if attempts > definition.retry_limit:
                         finished = datetime.now(UTC)
-                        return self._record(
+                        run = self._record(
                             schedule_id,
                             "failed",
                             started,
@@ -269,6 +329,7 @@ class Scheduler:
                             "scheduled execution failed after retry limit",
                             scheduled,
                         )
+                        return self._notify(definition, run, finding=False)
         finally:
             self._active[schedule_id] -= 1
             if self._active[schedule_id] == 0:
@@ -298,6 +359,39 @@ class Scheduler:
         )
         self._history[key] = run
         return run
+
+    def _notify(
+        self,
+        definition: ScheduleDefinition,
+        run: ScheduleRun,
+        *,
+        finding: bool,
+    ) -> ScheduleRun:
+        channel = definition.notify_channel
+        if self._notifier is None or channel is None:
+            return run
+        should_notify = (
+            definition.notify_only_if == "always"
+            or (
+                definition.notify_only_if == "finding_or_failure"
+                and (finding or run.status in {ScheduleStatus.FAILED, ScheduleStatus.BLOCKED})
+            )
+            or (
+                definition.notify_only_if == "failure"
+                and run.status in {ScheduleStatus.FAILED, ScheduleStatus.BLOCKED}
+            )
+        )
+        if not should_notify:
+            return run
+        try:
+            self._notifier.send(channel=channel, schedule=definition, run=run)
+        except Exception as exc:  # noqa: BLE001 - retain notification failure evidence
+            updated = replace(run, notification_error=type(exc).__name__)
+            self._history[run.idempotency_key] = updated
+            return updated
+        updated = replace(run, notification_sent=True)
+        self._history[run.idempotency_key] = updated
+        return updated
 
     def _require(self, schedule_id: str) -> ScheduleDefinition:
         try:

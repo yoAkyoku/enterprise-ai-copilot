@@ -316,6 +316,23 @@ def validate_schedule(path: str | Path) -> ValidationReport:
         "approved_write",
     }:
         report.issues.append("permissions.mode must be read_only or approved_write")
+    notify = mapping.get("notify", {})
+    if not isinstance(notify, dict):
+        report.issues.append("notify must be a mapping")
+    else:
+        channel = notify.get("channel")
+        if channel is not None and (
+            not isinstance(channel, str) or not channel.strip() or len(channel) > 64
+        ):
+            report.issues.append(
+                "notify.channel must be a non-empty string of at most 64 characters"
+            )
+        if notify.get("only_if", "finding_or_failure") not in {
+            "always",
+            "finding_or_failure",
+            "failure",
+        }:
+            report.issues.append("notify.only_if must be always, finding_or_failure or failure")
     return report
 
 

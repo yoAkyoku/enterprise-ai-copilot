@@ -317,6 +317,64 @@ limits:
         self.assertEqual(first, second)
         self.assertEqual(attempts, 2)
 
+    def test_scheduler_notifies_findings_once_and_honors_cancellation(self) -> None:
+        notifications: list[tuple[str, str, str]] = []
+
+        class Sink:
+            def send(self, *, channel, schedule, run) -> None:  # type: ignore[no-untyped-def]
+                notifications.append((channel, schedule.id, run.status.value))
+
+        finding_definition = ScheduleDefinition(
+            id="finding-schedule",
+            version="0.1.0",
+            agent="customer-service-agent",
+            schedule_type="one_shot",
+            at="2030-01-01T09:00:00+08:00",
+            timezone_name="Asia/Taipei",
+            notify_channel="web",
+            notify_only_if="finding_or_failure",
+        )
+        scheduler = Scheduler(notifier=Sink())
+        scheduler.register(finding_definition)
+        trigger_time = datetime(2030, 1, 1, 2, 0, tzinfo=UTC)
+        first = scheduler.trigger(
+            finding_definition.id,
+            trigger_time,
+            lambda _definition, _key: "finding",
+            finding=True,
+        )
+        duplicate = scheduler.trigger(
+            finding_definition.id,
+            trigger_time,
+            lambda _definition, _key: "duplicate",
+            finding=True,
+        )
+        self.assertTrue(first.notification_sent)
+        self.assertEqual(first, duplicate)
+        self.assertEqual(notifications, [("web", "finding-schedule", "succeeded")])
+
+        cancelled_definition = ScheduleDefinition(
+            id="cancelled-schedule",
+            version="0.1.0",
+            agent="customer-service-agent",
+            schedule_type="one_shot",
+            at="2030-01-01T09:00:00+08:00",
+            timezone_name="Asia/Taipei",
+        )
+        scheduler.register(cancelled_definition)
+        cancelled_key = "cancelled-schedule:2030-01-01T01:00:00+00:00"
+        scheduler.cancel(cancelled_key)
+        called = False
+
+        def should_not_run(_definition, _key):  # type: ignore[no-untyped-def]
+            nonlocal called
+            called = True
+            return "unexpected"
+
+        cancelled = scheduler.trigger(cancelled_definition.id, trigger_time, should_not_run)
+        self.assertEqual(cancelled.status, ScheduleStatus.CANCELLED)
+        self.assertFalse(called)
+
     def test_job_queue_preserves_payload_and_ack_boundary(self) -> None:
         queue = InMemoryJobQueue()
         job = queue.enqueue({"schedule_id": "schedule-1", "tenant_id": "tenant-a"})

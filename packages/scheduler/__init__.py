@@ -6,6 +6,7 @@ from .schedule import (
     Scheduler,
     ScheduleRun,
     ScheduleStatus,
+    NotificationSink,
     load_schedule,
 )
 
@@ -18,6 +19,7 @@ __all__ = [
     "ScheduleDefinition",
     "ScheduleRun",
     "ScheduleStatus",
+    "NotificationSink",
     "Scheduler",
     "load_schedule",
 ]

@@ -33,6 +33,8 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Manifest and repository validation
         run: python -m services.cli validate && python -m services.cli doctor
+      - name: Scheduler E2E smoke
+        run: python -m scripts.scheduler_e2e_smoke
       - name: Secret scan
         run: python scripts/check_secrets.py --git-history
       - name: Dependency audit
