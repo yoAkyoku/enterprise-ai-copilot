@@ -2,11 +2,11 @@
 
 from .queue import InMemoryJobQueue, Job, JobQueue, QueueError, RedisJobQueue
 from .schedule import (
+    NotificationSink,
     ScheduleDefinition,
     Scheduler,
     ScheduleRun,
     ScheduleStatus,
-    NotificationSink,
     load_schedule,
 )
 
@@ -14,12 +14,12 @@ __all__ = [
     "InMemoryJobQueue",
     "Job",
     "JobQueue",
+    "NotificationSink",
     "QueueError",
     "RedisJobQueue",
     "ScheduleDefinition",
     "ScheduleRun",
     "ScheduleStatus",
-    "NotificationSink",
     "Scheduler",
     "load_schedule",
 ]

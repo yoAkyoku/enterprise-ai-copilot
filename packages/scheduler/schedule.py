@@ -36,8 +36,8 @@ class NotificationSink(Protocol):
         self,
         *,
         channel: str,
-        schedule: "ScheduleDefinition",
-        run: "ScheduleRun",
+        schedule: ScheduleDefinition,
+        run: ScheduleRun,
     ) -> None:
         """Deliver one already-authorized notification."""
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import UTC, datetime
 
-from packages.scheduler import ScheduleStatus, Scheduler, load_schedule
+from packages.scheduler import Scheduler, ScheduleStatus, load_schedule
 
 
 def _require(condition: bool, message: str) -> None:
