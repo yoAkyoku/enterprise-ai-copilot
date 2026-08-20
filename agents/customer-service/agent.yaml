@@ -1,0 +1,19 @@
+id: customer-service-agent
+version: 0.1.0
+name: Customer Service Agent
+description: Answer tenant-scoped order-status questions with verified ERP evidence.
+instructions: ./AGENT.md
+skills:
+  allow:
+    - order-status
+mcp:
+  allow:
+    - erp.get_order_status
+approval:
+  read: auto
+  write: required
+  external_send: required
+  destructive: deny
+limits:
+  max_steps: 4
+  max_runtime_seconds: 30

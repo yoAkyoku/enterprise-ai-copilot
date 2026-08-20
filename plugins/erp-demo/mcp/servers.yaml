@@ -1,0 +1,9 @@
+servers:
+  erp-demo-plugin:
+    transport: in_memory
+    description: Synthetic read-only ERP tool exposed by the example Plugin.
+    tools:
+      - name: erp.get_order_status
+        risk: read
+        allow_roles: [customer, support, sales, manager, admin]
+        external_write: false

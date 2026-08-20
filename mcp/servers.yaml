@@ -1,0 +1,9 @@
+servers:
+  erp-demo:
+    transport: in_memory
+    description: Synthetic ERP MCP server used by local tests and the first demo.
+    tools:
+      - name: erp.get_order_status
+        risk: read
+        allow_roles: [customer, support, sales, manager, admin]
+        external_write: false

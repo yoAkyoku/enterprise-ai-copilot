@@ -1,0 +1,22 @@
+id: order-status-demo
+version: 0.1.0
+agent: customer-service-agent
+
+schedule:
+  type: one_shot
+  at: "2030-01-01T09:00:00+08:00"
+  timezone: Asia/Taipei
+
+run:
+  mode: isolated
+  max_runtime_seconds: 30
+  max_concurrency: 1
+  retry_limit: 1
+  catch_up: false
+
+permissions:
+  mode: read_only
+
+notify:
+  channel: web
+  only_if: finding_or_failure

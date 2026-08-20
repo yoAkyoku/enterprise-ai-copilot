@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.venv-release/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Build, test and tool caches
+build/
+dist/
+.artifact-smoke/
+.playwright-cli/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local validation artifacts; release evidence must be intentionally exported.
+artifacts/validation/
+.data/
+.data-ui-validation/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

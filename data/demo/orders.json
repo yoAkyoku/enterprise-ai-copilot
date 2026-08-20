@@ -1,0 +1,9 @@
+[
+  {
+    "tenant_id": "demo-tenant",
+    "order_id": "SO-1001",
+    "status": "in_transit",
+    "customer_id": "CUS-001",
+    "updated_at": "2026-08-19T08:00:00+08:00"
+  }
+]

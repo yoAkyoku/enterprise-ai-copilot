@@ -1,0 +1,13 @@
+{
+  "name": "erp-demo",
+  "version": "0.1.0",
+  "description": "Synthetic ERP order-status extension for local demonstrations.",
+  "publisher": "enterprise-ai-copilot",
+  "skills": "skills",
+  "mcp": "mcp",
+  "dependencies": [],
+  "permissions": {
+    "network": [],
+    "tools": ["erp.get_order_status"]
+  }
+}

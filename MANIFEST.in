@@ -1,0 +1,20 @@
+include AGENTS.md
+include README.md
+include LICENSE
+include CONTRIBUTING.md
+include SECURITY.md
+include CODE_OF_CONDUCT.md
+include CHANGELOG.md
+include THIRD_PARTY_NOTICES.md
+include .env.example
+recursive-include agents *.md *.yaml *.yml
+recursive-include .agents *.md *.py *.yaml *.yml
+recursive-include mcp *.yaml *.yml
+recursive-include schedules *.yaml *.yml
+recursive-include plugins *
+recursive-include data *.json *.md
+recursive-include infra *.sql *.md
+recursive-include docs *.md *.csv
+recursive-include tests *.py
+recursive-include scripts *.py
+recursive-include apps *.html *.css *.js

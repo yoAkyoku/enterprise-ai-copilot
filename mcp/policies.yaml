@@ -1,0 +1,13 @@
+defaults:
+  network: deny
+  shell: deny
+  credentials: references_only
+  private_targets: deny
+  loopback_targets: deny
+tools:
+  erp.get_order_status:
+    risk: read
+    approval: auto_when_authorized
+    timeout_seconds: 10
+    retry_limit: 0
+    idempotent: true
