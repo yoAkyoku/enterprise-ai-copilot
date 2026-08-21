@@ -40,13 +40,13 @@ controls remain deployment-specific gates.
 | Object-storage exposure | Generated key containment, exact endpoint allowlist, bounded reads and server-side encryption request | `IMG-008` | Real bucket policy, backup and restore evidence remain deployment-specific |
 | Provider/MCP SSRF | HTTPS exact-host allowlist, literal private/loopback/metadata host rejection, no redirects and bounded responses | `MCP-011`, `IMG-006` | DNS rebinding and target proxy policy require deployment-level controls |
 | Cross-scope attachment read | Metadata and content queries require authenticated user/workspace/tenant scope | `ATT-001`, `ATT-002` | Admin/support scoped access policy pending |
-| Token claim forgery | HS256 signature, expiry, issuer/audience options and required identity claims | `AUTH-001` | OIDC/JWKS rotation and external IdP integration pending |
+| Token claim forgery | HS256 signature, expiry, issuer/audience options and required identity claims; coordinated HS256 rotation runbook | `AUTH-001`, `AUTH-002` | A real deployment must execute and record the selected OIDC or HS256 process |
 | Durable run leakage | SQLite run reads filter user, workspace, tenant and role; audit dashboard filters workspace | `RUN-001` | Clustered database and row-level policy validation pending |
 
 ## Explicit non-goals for v0.1
 
 The current production-track branch does not claim protection against
 compromised hosts, a malicious maintainer, a compromised external identity
-provider, distributed-worker race conditions, production secret rotation,
-malware scanning, or full prompt-injection resistance for arbitrary RAG
-documents. These are release gates, not implicit guarantees.
+provider, distributed-worker race conditions, malware scanning, or full
+prompt-injection resistance for arbitrary RAG documents. These are release
+gates, not implicit guarantees.

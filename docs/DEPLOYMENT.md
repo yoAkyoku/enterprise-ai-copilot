@@ -45,6 +45,36 @@ scanning, positive retention, `AGENT_REDIS_URL` and
 `AGENT_TRACE_ENDPOINT`/`AGENT_TRACE_ALLOWED_HOSTS`. Startup fails closed when
 these requirements are missing.
 
+### HS256 rotation when OIDC is unavailable
+
+OIDC/JWKS is preferred. If a self-hosted operator uses `jwt_hs256`, the
+single-secret adapter requires a coordinated rotation because it deliberately
+does not accept two signing keys at once:
+
+1. Store the current and next 32-byte-or-longer secrets as versioned secret
+   references, with issuer and audience fixed in configuration. Keep access to
+   the old version only for the rollback window; never put either value in a
+   file, URL, log or repository.
+2. Set a short token lifetime and announce a maintenance window. Stop issuing
+   new tokens, drain API and worker traffic, and put the deployment in a
+   controlled reauthentication state. Do not perform a rolling mixed-secret
+   deploy, because it would make authentication nondeterministic across
+   replicas.
+3. Replace `AGENT_JWT_SECRET` in the secret manager and restart every API and
+   worker process from the same immutable image. Verify that a newly issued
+   token succeeds and a token signed with the old secret is rejected, while
+   issuer, audience, expiry and workspace/tenant/role claims remain enforced.
+4. Re-enable traffic only after `/ready`, authenticated API smoke, audit trace
+   continuity and queue health pass. Revoke/delete the old secret after the
+   token lifetime plus the documented rollback window.
+5. If verification fails, stop traffic and restore the previous secret version
+   and immutable image as one operation, then record the decision in the
+   incident/release evidence.
+
+This process is an operational control, not proof that a particular deployment
+has rotated its key. Record the operator, secret versions, timestamps and
+verification artifact for each real rotation.
+
 ## Readiness and migration
 
 After the service starts, check `/health` for configured adapter identities and
