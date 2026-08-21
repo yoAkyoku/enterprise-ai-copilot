@@ -26,6 +26,7 @@ jobs:
       AGENT_PROVIDER_MODE: remote
       AGENT_STORAGE_MODE: postgres
       AGENT_DATABASE_URL: ${{ secrets.AGENT_DATABASE_URL }}
+      AGENT_RESTORE_DATABASE_URL: ${{ secrets.AGENT_RESTORE_DATABASE_URL }}
       AGENT_AUTH_MODE: oidc_jwks
       AGENT_OIDC_ISSUER: ${{ secrets.AGENT_OIDC_ISSUER }}
       AGENT_OIDC_AUDIENCE: ${{ secrets.AGENT_OIDC_AUDIENCE }}
@@ -98,6 +99,14 @@ jobs:
         run: python -m scripts.production_preflight --json > artifacts/production-acceptance/preflight-static.json
       - name: Live dependency preflight
         run: python -m scripts.production_preflight --live --json > artifacts/production-acceptance/preflight-live.json
+      - name: PostgreSQL backup and isolated restore acceptance
+        run: >-
+          python -m scripts.postgres_backup_restore_smoke --confirm-live
+          > artifacts/production-acceptance/postgres-backup-restore.json
+      - name: Live Redis restart and abandoned-job reclaim smoke
+        env:
+          REDIS_URL: ${{ secrets.AGENT_REDIS_URL }}
+        run: python scripts/redis_worker_smoke.py > artifacts/production-acceptance/redis-worker-smoke.txt
       - name: Live connector smoke
         run: python -m scripts.connector_smoke --confirm-live --only all | tee artifacts/production-acceptance/connector-smoke.txt
       - name: Live API identity, tenant and attachment acceptance

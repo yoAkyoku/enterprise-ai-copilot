@@ -91,7 +91,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | INST-006 | first run | new user can complete one demo flow |
 | INST-007 | doctor command | missing dependencies are actionable and non-secret |
 | INST-008 | clean shutdown/restart | state is recoverable after restart |
-| INST-009 | backup/restore | checked-in backup utility creates and verifies a restorable database artifact |
+| INST-009 | backup/restore | checked-in utility creates a temporary custom-format backup, restores it into a separate database and verifies migrations without publishing the dump |
 | INST-010 | shared PostgreSQL store | migrations, scoped stores, idempotency and health probes pass against a disposable PostgreSQL service |
 
 ### 6.2 Configuration and manifests

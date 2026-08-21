@@ -143,5 +143,7 @@ class ApiAcceptanceConfigurationTests(unittest.TestCase):
         self.assertIn("workflow_dispatch:", workflow)
         self.assertIn("environment: ${{ inputs.target_environment }}", workflow)
         self.assertIn("--confirm-live", workflow)
+        self.assertIn("postgres_backup_restore_smoke", workflow)
+        self.assertIn("redis_worker_smoke.py", workflow)
         self.assertIn("if: always()", workflow)
         self.assertNotIn("\n  push:", workflow)

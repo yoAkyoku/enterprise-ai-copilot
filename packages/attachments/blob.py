@@ -140,6 +140,12 @@ class S3BlobStore:
         validated = _validate_key(key)
         return f"{self.prefix}/{validated}" if self.prefix else validated
 
+    def _best_effort_delete(self, key: str) -> None:
+        try:
+            self.client.delete_object(Bucket=self.bucket, Key=self._object_key(key))  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
     def put(self, key: str, data: bytes, content_type: str) -> None:
         arguments: dict[str, object] = {
             "Bucket": self.bucket,
@@ -150,10 +156,27 @@ class S3BlobStore:
         }
         if self.kms_key_id:
             arguments["SSEKMSKeyId"] = self.kms_key_id
+        written = False
         try:
             self.client.put_object(**arguments)  # type: ignore[attr-defined]
+            written = True
+            metadata = self.client.head_object(  # type: ignore[attr-defined]
+                Bucket=self.bucket, Key=self._object_key(key)
+            )
         except Exception as exc:
+            if written:
+                self._best_effort_delete(key)
             raise BlobStorageError("object-storage blob write failed") from exc
+        expected_algorithm = "aws:kms" if self.kms_key_id else "AES256"
+        if (
+            not isinstance(metadata, dict)
+            or metadata.get("ServerSideEncryption") != expected_algorithm
+        ):
+            self._best_effort_delete(key)
+            raise BlobStorageError("object-storage encryption verification failed")
+        if self.kms_key_id and not str(metadata.get("SSEKMSKeyId", "")).strip():
+            self._best_effort_delete(key)
+            raise BlobStorageError("object-storage KMS metadata is missing")
 
     def read(self, key: str, max_bytes: int) -> bytes:
         try:

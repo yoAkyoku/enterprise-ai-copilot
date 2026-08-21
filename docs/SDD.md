@@ -7,7 +7,8 @@
 - Repository intent: open-source, self-hostable enterprise Agent platform
 - Current implementation status: production-track package with a verified local
   runtime, Web console, durable run/audit/approval adapters, image evidence
-  flow, OIDC/JWKS boundary, S3-compatible blob boundary and metrics endpoint;
+  flow, OIDC/JWKS boundary, S3-compatible blob boundary that verifies
+  server-side encryption metadata and metrics endpoint;
   external production gates remain explicit in the release checklist
 - Normative terms: `MUST` is required, `SHOULD` is recommended, and `MAY` is optional
 
@@ -131,7 +132,10 @@ v1 SHOULD be a modular monolith with separate worker processes:
 - `postgres`: durable state, audit events and optional pgvector.
 - `redis`: queue, locks, rate limits and ephemeral streaming state.
 - `object storage`: documents, artifacts and exported packages; attachment
-  bytes use the S3-compatible adapter in production.
+  bytes use the S3-compatible adapter in production. Each object write
+  requests server-side encryption and verifies the returned encryption
+  metadata before the write is treated as successful; an unverifiable object
+  is best-effort deleted and the operation fails closed.
 
 當任務需要跨數小時或數天的 durable workflow 時，才引入 Temporal 或相等的 workflow engine；在此之前使用 PostgreSQL state machine + worker 即可。
 

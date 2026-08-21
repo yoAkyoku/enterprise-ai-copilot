@@ -75,6 +75,7 @@ class FakeS3Client:
     def __init__(self) -> None:
         self.objects: dict[tuple[str, str], bytes] = {}
         self.put_arguments: dict[str, object] | None = None
+        self.encryption_override: dict[str, object] | None = None
 
     def put_object(self, **kwargs: object) -> None:
         self.put_arguments = kwargs
@@ -82,6 +83,16 @@ class FakeS3Client:
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, FakeS3Body]:
         return {"Body": FakeS3Body(self.objects[(Bucket, Key)])}
+
+    def head_object(self, *, Bucket: str, Key: str) -> dict[str, object]:
+        del Bucket, Key
+        if self.encryption_override is not None:
+            return self.encryption_override
+        assert self.put_arguments is not None
+        return {
+            "ServerSideEncryption": self.put_arguments["ServerSideEncryption"],
+            "SSEKMSKeyId": self.put_arguments.get("SSEKMSKeyId", ""),
+        }
 
     def delete_object(self, *, Bucket: str, Key: str) -> None:
         self.objects.pop((Bucket, Key), None)
@@ -192,6 +203,22 @@ class AttachmentServiceTests(unittest.TestCase):
         blob_store.delete("scope/image.png")
         self.assertEqual(client.objects, {})
         self.assertTrue(blob_store.healthcheck())
+
+    def test_s3_blob_adapter_rejects_unverified_encryption(self) -> None:
+        client = FakeS3Client()
+        client.encryption_override = {"ServerSideEncryption": "AES256"}
+        blob_store = S3BlobStore(client, "copilot-bucket", kms_key_id="kms-key")
+        with self.assertRaises(BlobStorageError):
+            blob_store.put("scope/image.png", b"abc", "image/png")
+        self.assertEqual(client.objects, {})
+
+    def test_s3_blob_adapter_rejects_missing_kms_metadata(self) -> None:
+        client = FakeS3Client()
+        client.encryption_override = {"ServerSideEncryption": "aws:kms"}
+        blob_store = S3BlobStore(client, "copilot-bucket", kms_key_id="kms-key")
+        with self.assertRaises(BlobStorageError):
+            blob_store.put("scope/image.png", b"abc", "image/png")
+        self.assertEqual(client.objects, {})
 
     def test_attachment_health_checks_scanner_and_blob_store(self) -> None:
         service = AttachmentService(Path(self.directory.name) / "health")
