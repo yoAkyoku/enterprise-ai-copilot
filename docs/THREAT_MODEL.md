@@ -1,5 +1,10 @@
 # Production-track threat model
 
+Review status: repository review completed 2026-08-21. This threat model is
+paired with [Privacy and retention](PRIVACY_RETENTION.md), [Incident response](INCIDENT_RESPONSE.md)
+and [Migration and rollback](MIGRATION_ROLLBACK.md); target-environment
+controls remain deployment-specific gates.
+
 ## Assets
 
 - Tenant and workspace boundaries.
