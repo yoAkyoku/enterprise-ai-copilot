@@ -22,6 +22,8 @@ from .models import (
 )
 from .policy import PolicyEngine
 
+_MAX_STATUS_LENGTH = 256
+
 
 class AgentRuntime:
     agent_id = "customer-service-agent"
@@ -176,6 +178,7 @@ class AgentRuntime:
             and returned_order_id == requested_order_id
             and isinstance(returned_status, str)
             and bool(returned_status.strip())
+            and len(returned_status) <= _MAX_STATUS_LENGTH
             and (returned_tenant_id is None or returned_tenant_id == identity.tenant_id)
         )
         self._export_tool_span(

@@ -39,6 +39,7 @@ jobs:
         run: python -m pip install --upgrade pip setuptools wheel && python -m pip install ".[dev,security,production]"
       - name: Validate release
         run: |
+          python scripts/check_release_version.py --tag "${GITHUB_REF_NAME}"
           python -m compileall -q packages services tests scripts apps
           python -m ruff check packages services tests scripts
           python -m ruff format --check packages services tests scripts

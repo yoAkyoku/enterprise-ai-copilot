@@ -63,6 +63,10 @@ uses PostgreSQL for shared metadata. SQLite is still available only as an
 explicitly selected single-node deployment; do not share its volume across API
 replicas.
 
+Release tags are checked against the package version and must use a stable
+`vMAJOR.MINOR.PATCH` value; development versions such as `0.2.0.dev0` cannot
+publish through the release workflow.
+
 Multi-replica staging/production also requires `AGENT_REDIS_URL`; the API uses
 an atomic Redis limiter for upload and Vision/OCR abuse controls. Development
 without Redis intentionally uses an in-process limiter.

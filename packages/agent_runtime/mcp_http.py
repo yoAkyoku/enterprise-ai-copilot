@@ -11,6 +11,10 @@ from collections.abc import Mapping, Sequence
 from .models import ToolCallRequest, ToolDefinition, ToolResult
 from .network import NoRedirectHandler, validated_https_endpoint
 
+_MAX_SOURCE_ID = 512
+_MAX_OBSERVED_AT = 128
+_MAX_EXTERNAL_REF = 256
+
 
 class StreamableHttpMcpGateway:
     """Call an explicitly configured MCP endpoint without exposing credentials.
@@ -111,11 +115,23 @@ class StreamableHttpMcpGateway:
             workspace_id = structured.get("workspace_id")
             tenant_id = structured.get("tenant_id")
             data = structured.get("data", structured)
-            if not isinstance(source_id, str) or not source_id.strip():
+            if (
+                not isinstance(source_id, str)
+                or not source_id.strip()
+                or len(source_id) > _MAX_SOURCE_ID
+            ):
                 return ToolResult(success=False, error="remote MCP result is missing provenance")
-            if not isinstance(observed_at, str) or not observed_at.strip():
+            if (
+                not isinstance(observed_at, str)
+                or not observed_at.strip()
+                or len(observed_at) > _MAX_OBSERVED_AT
+            ):
                 return ToolResult(success=False, error="remote MCP result is missing observed time")
-            if not isinstance(external_ref, str) or not external_ref.strip():
+            if (
+                not isinstance(external_ref, str)
+                or not external_ref.strip()
+                or len(external_ref) > _MAX_EXTERNAL_REF
+            ):
                 return ToolResult(
                     success=False, error="remote MCP result is missing external reference"
                 )

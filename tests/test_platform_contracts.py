@@ -208,6 +208,60 @@ class PlatformContractTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("scope", result.error or "")
 
+    def test_remote_mcp_rejects_oversized_provenance_fields(self) -> None:
+        gateway = StreamableHttpMcpGateway(
+            "https://mcp.example.test/tools",
+            InMemoryMcpGateway({}).definitions,
+            allowed_hosts=["mcp.example.test"],
+        )
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "result": {
+                    "structuredContent": {
+                        "data": {"order_id": "SO-1001", "status": "delivered"},
+                        "source_id": "x" * 513,
+                        "observed_at": "2026-08-20T00:00:00+00:00",
+                        "external_ref": "SO-1001",
+                        "workspace_id": "workspace-a",
+                        "tenant_id": "tenant-a",
+                    }
+                },
+            }
+        ).encode()
+
+        class Response:
+            status = 200
+
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, _limit: int) -> bytes:
+                return body
+
+        class Opener:
+            def open(self, request: object, *, timeout: float) -> Response:
+                del request, timeout
+                return Response()
+
+        request = ToolCallRequest(
+            request_id="request-1",
+            trace_id="trace-1",
+            run_id="run-1",
+            identity=IdentityContext("user-a", "workspace-a", "tenant-a", "customer"),
+            tool_name="erp.get_order_status",
+            arguments={"order_id": "SO-1001"},
+            idempotency_key="run-1:order-status",
+        )
+        with patch("urllib.request.build_opener", return_value=Opener()):
+            result = gateway.call(request)
+
+        self.assertFalse(result.success)
+        self.assertIn("provenance", result.error or "")
+
     def test_remote_mcp_health_accepts_post_only_405_but_not_auth_failures(self) -> None:
         gateway = StreamableHttpMcpGateway(
             "https://mcp.example.test/tools",
@@ -269,6 +323,12 @@ class PlatformContractTests(unittest.TestCase):
         self.assertIn("AGENT_TEST_POSTGRES_URL", workflow_text)
         self.assertIn("pg_dump", workflow_text)
         self.assertIn("pg_restore", workflow_text)
+
+    def test_release_workflow_requires_stable_matching_package_version(self) -> None:
+        workflow = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn(
+            'python scripts/check_release_version.py --tag "${GITHUB_REF_NAME}"', workflow
+        )
 
     def test_container_base_and_redis_images_are_immutable(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")

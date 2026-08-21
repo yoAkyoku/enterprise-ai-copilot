@@ -403,6 +403,9 @@ MCP Gateway MUST implement server registry、tool allowlist、tool schema valida
 Successful tool results MUST echo the trusted workspace and tenant scope injected
 by the runtime, carry the requested record identity and provenance, and be
 rejected before a run is marked successful when any of those values disagree.
+Connector-controlled provenance and status fields MUST have bounded lengths so a
+valid-looking remote response cannot amplify into an audit, database or API
+resource-exhaustion payload.
 A remote MCP readiness probe MAY receive HTTP 405 from a POST-only tool
 endpoint; that means the endpoint is reachable. Authentication, redirect,
 transport and other HTTP failures remain unhealthy.

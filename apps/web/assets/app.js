@@ -46,7 +46,7 @@
     };
     const html = agents.map((agent) => {
       const [description, tags] = copy[agent.id] || ["Bounded workflow ready for supervised execution.", ["policy checked"]];
-      return `<article class="agent-card"><div class="agent-top"><span class="agent-orb">✦</span><div><h4>${escapeHtml(agent.id.replaceAll("-", " "))}</h4><small>${escapeHtml(agent.status)} · ${agent.tool_count || 0} tool</small></div><span class="ready-label">READY</span></div><p class="agent-description">${escapeHtml(description)}</p><div class="agent-tags">${tags.map((tag) => `<span class="agent-tag">${escapeHtml(tag)}</span>`).join("")}</div></article>`;
+      return `<article class="agent-card"><div class="agent-top"><span class="agent-orb">✦</span><div><h4>${escapeHtml(agent.id.replaceAll("-", " "))}</h4><small>${escapeHtml(agent.status)} · ${escapeHtml(agent.tool_count || 0)} tool</small></div><span class="ready-label">READY</span></div><p class="agent-description">${escapeHtml(description)}</p><div class="agent-tags">${tags.map((tag) => `<span class="agent-tag">${escapeHtml(tag)}</span>`).join("")}</div></article>`;
     }).join("");
     $("#agent-grid").innerHTML = html || `<div class="loading-card">No agents are currently registered.</div>`;
     $("#agent-directory").innerHTML = html || `<div class="loading-card">No agents are currently registered.</div>`;

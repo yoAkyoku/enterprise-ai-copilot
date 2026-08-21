@@ -215,6 +215,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | SEC-015 | tenant-scoped audit reads | dashboard and run-event reads cannot mix tenants sharing one workspace |
 | MCP-012 | result scope verification | a remote tool result with a mismatched workspace, tenant or record identity is rejected |
 | MCP-013 | remote MCP readiness | POST-only endpoint returning 405 is reachable but auth/transport failures stay unhealthy |
+| MCP-014 | remote MCP response bounds | oversized provenance and status fields are rejected before audit or user response construction |
 | OPS-004 | attachment dependency readiness | `/ready` fails when metadata, object storage or the configured malware scanner is unavailable |
 
 ### 6.10 API, UI and observability
@@ -344,6 +345,7 @@ MUST additionally verify：
 5. rollback or recovery procedure
 6. generated release notes
 7. no prohibited files in the artifact
+8. release tag exactly matches a stable `MAJOR.MINOR.PATCH` package version
 
 ## 9. Release gates
 

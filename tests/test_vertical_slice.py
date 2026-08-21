@@ -116,6 +116,34 @@ class VerticalSliceTests(unittest.TestCase):
         self.assertEqual(result.status, RunStatus.FAILED)
         self.assertIn("provenance", result.message)
 
+    def test_runtime_rejects_oversized_connector_status(self) -> None:
+        gateway = InMemoryMcpGateway(
+            {
+                ("tenant-a", "SO-1001"): {
+                    "order_id": "SO-1001",
+                    "status": "in_transit",
+                }
+            }
+        )
+        runtime = AgentRuntime(PolicyEngine(gateway.definitions), gateway, AuditLog())
+        oversized = ToolResult(
+            success=True,
+            data={"order_id": "SO-1001", "status": "x" * 257},
+            source_id="erp:SO-1001",
+            observed_at="2026-08-21T00:00:00+00:00",
+            external_ref="SO-1001",
+            workspace_id="workspace-a",
+            tenant_id="tenant-a",
+        )
+        with patch.object(gateway, "call", return_value=oversized):
+            result = runtime.run(
+                "Where is my order?",
+                IdentityContext("user-a", "workspace-a", "tenant-a", "customer"),
+                order_id="SO-1001",
+            )
+        self.assertEqual(result.status, RunStatus.FAILED)
+        self.assertIn("provenance", result.message)
+
     def test_identity_is_required(self) -> None:
         runtime, audit = make_runtime()
         result = runtime.run(
@@ -148,6 +176,7 @@ class VerticalSliceTests(unittest.TestCase):
             "MANIFEST.in",
             "scripts/production_preflight.py",
             "scripts/connector_smoke.py",
+            "scripts/check_release_version.py",
             "scripts/migrate_postgres.py",
             "scripts/backup_postgres.py",
         )
