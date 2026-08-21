@@ -177,6 +177,12 @@ class PlatformContractTests(unittest.TestCase):
             all(re.search(r"@[0-9a-f]{40}", line) for line in action_lines), action_lines
         )
 
+    def test_container_base_and_redis_images_are_immutable(self) -> None:
+        dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+        compose = (ROOT / "deploy" / "docker-compose.production.yml").read_text(encoding="utf-8")
+        self.assertRegex(dockerfile, r"FROM python:3\.12-slim-bookworm@sha256:[0-9a-f]{64}")
+        self.assertRegex(compose, r"image: redis:7\.4-alpine@sha256:[0-9a-f]{64}")
+
     def test_agent_instruction_path_traversal_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

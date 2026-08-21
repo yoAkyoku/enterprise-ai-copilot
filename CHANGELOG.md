@@ -14,6 +14,10 @@ All notable changes are documented here.
 - Added a review-gated local Plugin registry and deterministic scheduler.
 - Added a FastAPI developer-preview API, SQLite audit adapter and local Docker
   packaging.
+- Added a fail-closed production preflight and explicit opt-in live connector
+  smoke for model, MCP, Vision/OCR, S3, ClamAV and OTLP boundaries.
+- Added a Redis schedule producer with per-slot idempotency, continuous worker
+  graceful shutdown and immutable production container dependencies.
 
 ## 0.1.0-dev
 

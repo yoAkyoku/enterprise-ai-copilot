@@ -116,6 +116,8 @@ class VerticalSliceTests(unittest.TestCase):
             "apps/web/index.html",
             "data/demo/orders.json",
             "MANIFEST.in",
+            "scripts/production_preflight.py",
+            "scripts/connector_smoke.py",
         )
         for relative_path in required:
             with self.subTest(relative_path=relative_path):

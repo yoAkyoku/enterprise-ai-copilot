@@ -24,7 +24,7 @@ services:
     restart: unless-stopped
     healthcheck:
       test:
-        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready')"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -68,8 +68,38 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  scheduler:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ${AGENT_ENV_FILE:-deploy/production.env.example}
+    environment:
+      AGENT_PLATFORM_ENV: production
+      AGENT_REDIS_URL: redis://redis:6379/0
+    command:
+      [
+        "python",
+        "-m",
+        "services.scheduler.main",
+        "schedules/order-status-demo.yaml",
+        "--redis-url",
+        "redis://redis:6379/0",
+        "--interval-seconds",
+        "15"
+      ]
+    depends_on:
+      redis:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
   redis:
-    image: redis:7.4-alpine
+    image: redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis-data:/data

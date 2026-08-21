@@ -35,6 +35,9 @@ jobs:
           python -m pip check
           docker compose config --quiet
           docker compose --project-directory . -f deploy/docker-compose.production.yml config --quiet
+          docker build --tag enterprise-ai-copilot:${{ github.ref_name }} .
+          docker run --rm --entrypoint python enterprise-ai-copilot:${{ github.ref_name }} -c "from pathlib import Path; assert Path('/app/scripts/production_preflight.py').is_file(); assert Path('/app/infra/migrations/001_run_events.sql').is_file(); print('production-image-assets: PASS')"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock docker.io/aquasec/trivy@sha256:5c59e08f980b5d4d503329773480fcea2c9bdad7e381d846fbf9f2ecb8050f6b image --exit-code 1 --ignore-unfixed --vuln-type os,library --severity HIGH,CRITICAL enterprise-ai-copilot:${{ github.ref_name }}
           python scripts/release_gate.py
       - name: Build wheel
         run: |

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 
@@ -108,11 +110,21 @@ def main() -> int:
     if args.queue_mode != "dry-run":
         if not args.redis_url:
             parser.error("--redis-url is required for queue mode")
+        stop_event = threading.Event()
+        redis_client = None
+
+        def request_stop(signum: int, _frame: object) -> None:
+            print(f"worker stop requested signal={signum}")
+            stop_event.set()
+
         try:
             from redis import Redis
 
+            redis_client = Redis.from_url(
+                args.redis_url, socket_timeout=5, socket_connect_timeout=5
+            )
             queue = RedisJobQueue(
-                Redis.from_url(args.redis_url, socket_timeout=5, socket_connect_timeout=5),
+                redis_client,
                 consumer=args.worker_id,
             )
             if args.queue_mode == "enqueue":
@@ -127,7 +139,10 @@ def main() -> int:
                 execute = executor.execute
             else:
                 execute = _distributed_dry_run
-            while True:
+            signal.signal(signal.SIGINT, request_stop)
+            if hasattr(signal, "SIGTERM"):
+                signal.signal(signal.SIGTERM, request_stop)
+            while not stop_event.is_set():
                 job = queue.receive(block_seconds=args.block_seconds)
                 if job is None:
                     if args.continuous:
@@ -137,9 +152,17 @@ def main() -> int:
                 result = _consume_job(queue, definition, scheduler, job, execute, platform_env)
                 if result != 0 or not args.continuous:
                     return result
+            print("worker stopped gracefully")
+            return 0
         except (ImportError, OSError, ValueError, RuntimeError) as exc:
             print(f"queue worker failed: {exc}")
             return 1
+        except KeyboardInterrupt:
+            print("worker stopped gracefully")
+            return 0
+        finally:
+            if redis_client is not None:
+                redis_client.close()
     if execution_mode == "agent":
         runtime, _audit = build_runtime(trace_exporter=build_trace_exporter(platform_env))
         executor = AgentScheduleExecutor(runtime, build_worker_identity(platform_env))

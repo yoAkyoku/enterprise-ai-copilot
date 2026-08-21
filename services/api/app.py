@@ -1018,6 +1018,10 @@ def build_default_app() -> FastAPI:
         }
         if not bucket:
             raise RuntimeError("AGENT_S3_BUCKET is required when AGENT_ATTACHMENT_STORAGE=s3")
+        if platform_env in {"staging", "production"} and not endpoint:
+            raise RuntimeError("staging and production require an explicit AGENT_S3_ENDPOINT")
+        if platform_env in {"staging", "production"} and not allowed_s3_hosts:
+            raise RuntimeError("staging and production require AGENT_S3_ALLOWED_HOSTS")
         if endpoint:
             parsed_endpoint = urllib.parse.urlparse(endpoint)
             endpoint_host = (parsed_endpoint.hostname or "").lower()
@@ -1034,6 +1038,11 @@ def build_default_app() -> FastAPI:
                 raise RuntimeError(
                     "AGENT_S3_ENDPOINT must be HTTPS and match AGENT_S3_ALLOWED_HOSTS"
                 )
+        if (
+            platform_env in {"staging", "production"}
+            and not os.getenv("AGENT_S3_KMS_KEY_ID", "").strip()
+        ):
+            raise RuntimeError("staging and production require AGENT_S3_KMS_KEY_ID")
         try:
             import boto3
 

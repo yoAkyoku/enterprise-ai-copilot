@@ -53,8 +53,13 @@ are not silently claimed as executed in the synthetic release.
 The text-model boundary uses the same OpenAI-compatible contract. It receives
 only a user query plus server-verified evidence, requires explicit
 `allow_external_processing` consent, and labels returned prose as unverified.
-The production Compose profile starts the API, a continuous Redis worker and
-Redis; replace the example environment with secret-managed values before use.
+The production Compose profile starts the API, a Redis-backed schedule
+producer, a continuous worker and Redis; replace the example environment with
+secret-managed values before use.
+Run `python scripts/production_preflight.py --json` before startup. The
+checked-in production profile is a single-node SQLite deployment; do not scale
+API replicas against the same volume until a reviewed shared-database adapter
+and migration path is added.
 
 Multi-replica staging/production also requires `AGENT_REDIS_URL`; the API uses
 an atomic Redis limiter for upload and Vision/OCR abuse controls. Development

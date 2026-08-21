@@ -120,6 +120,37 @@ class WorkerExecutionTests(unittest.TestCase):
         queue.complete_run("worker-schedule:slot", first.token or "")
         self.assertEqual(queue.claim_run("worker-schedule:slot").status, "completed")
 
+    def test_schedule_enqueue_claim_deduplicates_producer_restarts(self) -> None:
+        class FakeRedis:
+            def __init__(self) -> None:
+                self.values: dict[str, str] = {}
+                self.messages: list[tuple[str, dict[str, str]]] = []
+
+            def set(self, key: str, value: str, *, nx: bool, ex: int) -> bool:
+                del ex
+                if nx and key in self.values:
+                    return False
+                self.values[key] = value
+                return True
+
+            def delete(self, key: str) -> None:
+                self.values.pop(key, None)
+
+            def xgroup_create(self, *args: object, **kwargs: object) -> None:
+                del args, kwargs
+
+            def xadd(self, _stream: str, fields: dict[str, str]) -> str:
+                self.messages.append(("1-0", fields))
+                return "1-0"
+
+        client = FakeRedis()
+        queue = RedisJobQueue(client, stream="worker-test")
+        first = queue.enqueue_once({"kind": "scheduled_agent"}, "worker-schedule:slot")
+        second = queue.enqueue_once({"kind": "scheduled_agent"}, "worker-schedule:slot")
+        self.assertIsNotNone(first)
+        self.assertIsNone(second)
+        self.assertEqual(len(client.messages), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -19,6 +19,8 @@ Before starting the API, provision and test:
 - an OpenAI-compatible model endpoint if model explanations are enabled; it
   must be HTTPS, host-allowlisted and receive only consented, verified evidence;
 - an S3-compatible bucket with server-side encryption and a lifecycle policy;
+  configure an explicit HTTPS `AGENT_S3_ENDPOINT`, exact
+  `AGENT_S3_ALLOWED_HOSTS` and `AGENT_S3_KMS_KEY_ID`;
 - ClamAV or an equivalent reviewed scanner reachable through the clamd protocol;
 - a persistent volume for `/app/.data`, encrypted backups and a tested restore;
 - TLS termination, ingress authentication/rate limits and centralized logs.
@@ -39,11 +41,18 @@ docker compose --project-directory . -f deploy/docker-compose.production.yml con
 docker compose --project-directory . -f deploy/docker-compose.production.yml up -d --build
 ```
 
-The production profile runs the API, a continuous Redis Streams worker and
-Redis. It binds the API to loopback for a TLS reverse proxy, uses a read-only
+The production profile runs the API, a schedule producer, a continuous Redis
+Streams worker and Redis. It binds the API to loopback for a TLS reverse proxy, uses a read-only
 container filesystem, and restarts the API/worker after failure. Replace the
 example env file with a secret-managed file before starting; the checked-in
 example intentionally points at `example.invalid` and is not a live deployment.
+
+The checked-in production profile is a single-node SQLite deployment. It is
+appropriate only when the encrypted `/app/.data` volume is owned by one API
+instance and the operator has tested backup/restore. Do not run multiple API
+replicas against that volume and do not treat SQLite as a high-availability
+database. A PostgreSQL adapter is a separate deployment track; until it is
+implemented and validated, horizontal scaling is `UNVERIFIED`.
 
 Place the API behind a TLS reverse proxy; do not expose the unauthenticated
 development port directly to the public Internet. The production environment
@@ -98,6 +107,27 @@ Invoke-WebRequest http://127.0.0.1:8000/health
 Invoke-WebRequest http://127.0.0.1:8000/ready
 ```
 
+Before `up`, run the static preflight using the secret-managed environment;
+after dependencies are reachable, add `--live`:
+
+```powershell
+python scripts/production_preflight.py --json
+python scripts/production_preflight.py --live
+```
+
+The live connector smoke is intentionally separate because it can make model
+calls and creates one temporary encrypted object. Run it only from an
+operator-controlled host with a disposable worker identity:
+
+```powershell
+python scripts/connector_smoke.py --confirm-live --only mcp
+python scripts/connector_smoke.py --confirm-live --only all
+```
+
+Capture the JSON preflight output, smoke output, image digest, dependency
+versions and target timestamps in `docs/validation/evidence-index.csv`. A
+successful command with synthetic credentials is not production evidence.
+
 The API exposes authenticated `/metrics`. Forward only privacy-safe metrics and
 OTLP spans to the monitoring system. Preserve `X-Request-Id`, trace, run,
 workspace and audit identifiers in the log/trace pipeline without recording
@@ -105,7 +135,10 @@ tokens, image bytes or raw sensitive arguments.
 
 ## Scheduled worker
 
-Run the worker as a separate process with the same immutable image and
+The `scheduler` service polls the reviewed schedule and uses a Redis
+idempotency key for each due slot. Keep it enabled; starting only the worker
+would consume jobs but would not produce future scheduled jobs. Run the worker
+as a separate process with the same immutable image and
 production environment. Production and staging require real Agent execution;
 the dry-run mode is for local contract checks only:
 

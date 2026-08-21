@@ -52,6 +52,8 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Manifest and repository validation
         run: python -m services.cli validate && python -m services.cli doctor
+      - name: Production Compose configuration
+        run: docker compose --project-directory . -f deploy/docker-compose.production.yml config --quiet
       - name: Scheduler E2E smoke
         run: python -m scripts.scheduler_e2e_smoke
       - name: Secret scan
@@ -99,6 +101,10 @@ jobs:
           docker.io/aquasec/trivy@sha256:5c59e08f980b5d4d503329773480fcea2c9bdad7e381d846fbf9f2ecb8050f6b
           image --exit-code 1 --ignore-unfixed --vuln-type os,library
           --severity HIGH,CRITICAL enterprise-ai-copilot:ci
+      - name: Verify production image assets
+        run: >-
+          docker run --rm --entrypoint python enterprise-ai-copilot:ci -c
+          "from pathlib import Path; assert Path('/app/scripts/production_preflight.py').is_file(); assert Path('/app/scripts/connector_smoke.py').is_file(); assert Path('/app/infra/migrations/001_run_events.sql').is_file(); print('production-image-assets: PASS')"
       - name: Stop stack
         if: always()
         run: docker compose down -v

@@ -126,6 +126,8 @@ v1 SHOULD be a modular monolith with separate worker processes:
 - `web`: UI and API gateway.
 - `api`: authentication, conversations, Agent Runtime and policy decisions.
 - `worker`: scheduled runs, ingestion, retries and long-running jobs.
+- `scheduler`: polls reviewed schedule definitions and idempotently publishes
+  due slots to Redis; it never selects identity from a queue payload.
 - `postgres`: durable state, audit events and optional pgvector.
 - `redis`: queue, locks, rate limits and ephemeral streaming state.
 - `object storage`: documents, artifacts and exported packages; attachment
@@ -135,7 +137,11 @@ v1 SHOULD be a modular monolith with separate worker processes:
 
 ### 4.3 Reference technology stack
 
-這是參考實作，不是對使用者的硬性限制：
+這是參考實作，不是對使用者的硬性限制。此 checkout 的 production
+Compose profile 目前採單節點 SQLite；它不能安全地支援多個 API replicas。
+PostgreSQL remains the recommended shared-store target, but horizontal scale
+is not part of the current production-track release until its adapter,
+migrations and recovery tests are implemented.
 
 - Frontend: Next.js + TypeScript.
 - API and runtime: FastAPI + Python.

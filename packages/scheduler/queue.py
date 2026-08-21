@@ -122,6 +122,36 @@ class RedisJobQueue:
             id=job_id, payload=dict(payload), enqueued_at=str(time.time()), receipt=str(receipt)
         )
 
+    def enqueue_once(
+        self,
+        payload: dict[str, object],
+        idempotency_key: str,
+        *,
+        retention_seconds: int = 30 * 86400,
+    ) -> Job | None:
+        """Enqueue one schedule slot without duplicating it after producer restart."""
+
+        if not idempotency_key or len(idempotency_key) > 256:
+            raise ValueError("schedule enqueue idempotency key is invalid")
+        if retention_seconds <= 0 or retention_seconds > 365 * 86400:
+            raise ValueError("schedule enqueue retention is invalid")
+        state_key = self._enqueue_state_key(idempotency_key)
+        try:
+            created = self.client.set(  # type: ignore[attr-defined]
+                state_key, "enqueued", nx=True, ex=retention_seconds
+            )
+            if not created:
+                return None
+            try:
+                return self.enqueue(payload)
+            except Exception:
+                self.client.delete(state_key)  # type: ignore[attr-defined]
+                raise
+        except Exception as exc:
+            if isinstance(exc, QueueError):
+                raise
+            raise QueueError("Redis schedule enqueue claim failed") from exc
+
     def receive(self, *, block_seconds: int = 5) -> Job | None:
         if block_seconds < 0 or block_seconds > 300:
             raise ValueError("block timeout is invalid")
@@ -216,6 +246,10 @@ class RedisJobQueue:
     def _run_state_key(self, idempotency_key: str) -> str:
         digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
         return f"{self.stream}:runs:{digest}"
+
+    def _enqueue_state_key(self, idempotency_key: str) -> str:
+        digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+        return f"{self.stream}:enqueued:{digest}"
 
     def _claim_abandoned(self) -> list[tuple[object, object]]:
         try:
