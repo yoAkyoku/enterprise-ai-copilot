@@ -3,6 +3,7 @@
 from .validation import (
     ContractValidationError,
     ValidationReport,
+    plugin_signature_digest,
     validate_agent_manifest,
     validate_mcp_config,
     validate_plugin,
@@ -14,6 +15,7 @@ from .validation import (
 __all__ = [
     "ContractValidationError",
     "ValidationReport",
+    "plugin_signature_digest",
     "validate_agent_manifest",
     "validate_mcp_config",
     "validate_plugin",

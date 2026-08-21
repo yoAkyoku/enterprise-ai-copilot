@@ -11,3 +11,9 @@ tools:
     timeout_seconds: 10
     retry_limit: 0
     idempotent: true
+  erp.create_return:
+    risk: write
+    approval: required
+    timeout_seconds: 15
+    retry_limit: 0
+    idempotent: true

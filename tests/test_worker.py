@@ -75,6 +75,8 @@ class WorkerExecutionTests(unittest.TestCase):
             validate_agent_schedule(self.definition(query=None))
         with self.assertRaises(WorkerConfigurationError):
             validate_agent_schedule(self.definition(agent="unknown-agent"))
+        with self.assertRaisesRegex(WorkerConfigurationError, "approval-bound"):
+            validate_agent_schedule(self.definition(permissions_mode="approved_write"))
 
     def test_schedule_payload_requires_timezone(self) -> None:
         from services.worker.executor import (

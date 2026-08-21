@@ -135,6 +135,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | MCP-009 | arbitrary SQL | raw SQL or unapproved view is rejected |
 | MCP-010 | SSRF/network | private, loopback and unapproved destinations are blocked |
 | MCP-011 | streamable HTTP | remote transport uses HTTPS host allowlist, timeout, no redirects and bounded responses |
+| MCP-015 | generic tool execution | typed arguments, bounded provenance/data and explicit idempotency reach the registered connector |
 
 ### 6.5 Policy, approval and sandbox
 
@@ -151,6 +152,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | POL-009 | shell | shell is denied unless explicit profile grants it |
 | POL-010 | destructive action | destructive tool is denied by default |
 | POL-011 | approval persistence | approval is scoped, expiring, argument-bound and token material is not stored in plaintext |
+| POL-012 | generic high-risk execution | user-bound one-time approval, Agent allowlist and explicit idempotency key are required before a write |
 
 ### 6.6 Skills, Plugins and packages
 
@@ -158,13 +160,14 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 |---|---|---|
 | EXT-001 | Skill discovery | only valid, visible Skills are offered to the Agent |
 | EXT-002 | Skill execution | Skill cannot expand its own permissions |
-| EXT-003 | plugin install | manifest, hash, version and permission review required |
+| EXT-003 | plugin install | manifest, hash, version and permission review required; production requires a trusted Ed25519 publisher signature |
 | EXT-004 | plugin rollback | previous known-good version can be restored |
 | EXT-005 | dependency conflict | incompatible Plugin/Skill versions are rejected |
 | EXT-006 | untrusted package | package from unknown source is quarantined or blocked |
 | EXT-007 | self-learning | generated Skill is proposal-only in production mode |
 | EXT-008 | export/import | package imported into a clean environment is equivalent |
 | EXT-009 | protected acceptance | manual target workflow uses protected environment secrets and emits redacted evidence |
+| EXT-010 | publisher signature | production Plugin install and rollback verify a trusted Ed25519 signature before copy |
 
 ### 6.7 Scheduler and long-running work
 
@@ -178,6 +181,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | SCH-006 | retry/backoff | retry limit and final failure are visible |
 | SCH-007 | notification | only configured findings/failures notify |
 | SCH-008 | scheduled permissions | unattended task cannot silently gain write access |
+| SCH-012 | worker action mode | the current Agent worker rejects high-risk schedules unless a dedicated approval-bound executor exists |
 | SCH-009 | run isolation | scheduled run cannot pollute another run's context |
 | SCH-010 | distributed queue | enqueue, claim, ack and abandoned-job reclaim preserve job identity |
 | SCH-011 | distributed cancellation | durable cancellation marker prevents a queued/retrying run from claiming or starting the next tool call |
@@ -229,6 +233,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | API-003 | idempotency | repeated client request is safe |
 | API-004 | resource limits | upload and provider-analysis endpoints enforce bounded body size and rate limits |
 | API-005 | deployed scope | two real bearer principals cannot read each other's runs or attachments |
+| API-006 | generic tool endpoint | approved write returns explicit terminal state and replay cannot invoke the connector twice |
 | UI-001 | approval UX | user sees exact action, target, arguments and risk |
 | UI-002 | trace UX | internal user can inspect Agent, Tool, source and policy result |
 | UI-003 | customer UX | customer cannot see internal secrets or hidden prompts |
@@ -250,6 +255,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | IMG-006 | provider egress | Vision/OCR calls require an approved provider, timeout, consent and provenance record |
 | IMG-007 | browser flow | authenticated upload, preview, failure and delete-confirmation states pass browser E2E |
 | IMG-008 | object storage | production attachment storage uses an encrypted, bounded, allowlisted object-store adapter |
+| IMG-009 | evidence correlation | Vision/OCR result and attachment audit preserve request, trace, run and attachment digest |
 
 ### 6.12 Text model provider
 

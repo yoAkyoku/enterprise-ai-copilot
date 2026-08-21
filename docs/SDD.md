@@ -302,6 +302,10 @@ Skill 的可見性不等於執行授權；最終授權一定由 Policy Engine �
 ```
 
 Plugin registry MUST record publisher, version, integrity hash, requested permissions, dependency versions and review status. Install、update、rollback MUST be auditable。
+Production Plugin installation MUST additionally verify an Ed25519 signature against
+deployment-provided trusted publisher keys. An unsigned package may be used only by
+the local review-gated development registry; signature verification MUST happen
+before copy, activation or rollback.
 
 ### 5.6 Schedule contract
 
@@ -332,6 +336,10 @@ notify:
 ```
 
 Schedule MUST support idempotency, timezone, retry/backoff, timeout, concurrency, pause/resume, expiration, notification and run history。
+The current Agent worker executes only `read_only` schedules. A declared
+`approved_write` schedule MUST be rejected unless it is routed through a
+separate executor carrying a user-bound, argument-bound approval grant; a queue
+payload alone is never an approval.
 
 ## 6. Agent Runtime
 
@@ -405,6 +413,11 @@ Subagent 的結果 MUST 經過 schema validation 與 evidence verification，不
 | `destructive` | 刪除、退款、批次變更 | deny until explicitly enabled |
 
 MCP Gateway MUST implement server registry、tool allowlist、tool schema validation、timeout、retry policy、health check、credential isolation、rate limit、audit and provenance。
+
+The Agent Runtime exposes one generic registered-tool execution path for the
+API and future planners. It applies the Agent manifest allowlist, the typed
+argument schema, risk policy, durable one-time approval, cancellation,
+idempotency key and result provenance checks before MCP is called.
 
 Successful tool results MUST echo the trusted workspace and tenant scope injected
 by the runtime, carry the requested record identity and provenance, and be
@@ -566,6 +579,7 @@ GET    /api/v1/approvals
 POST   /api/v1/approvals
 POST   /api/v1/approvals/{id}/approve
 POST   /api/v1/approvals/{id}/reject
+POST   /api/v1/tools/{tool_name}/execute
 
 GET    /api/v1/audit/events
 
@@ -574,6 +588,16 @@ GET    /ready
 ```
 
 API MUST return explicit states for `blocked`, `approval_required`, `partial_success` and `external_confirmation_pending`；不能以 HTTP 200 + generic success 表示未完成的外部操作。
+
+`/api/v1/tools/{tool_name}/execute` MUST never accept tenant, workspace or user
+identity from its JSON arguments. The Agent manifest and typed MCP definition
+are authoritative; high-risk actions require the durable approval verifier and
+the one-time token is consumed before the external call. High-risk requests also
+require a caller-provided idempotency key, which is recorded with the terminal
+outcome. A blocked or cancelled
+attempt MUST NOT reserve the client idempotency key, so a valid approved retry
+can still proceed; a completed or failed external attempt is recorded against
+the key to prevent an unreviewed duplicate.
 
 ## 12. Observability
 

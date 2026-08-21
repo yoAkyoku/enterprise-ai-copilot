@@ -7,6 +7,8 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 
+import yaml
+
 from packages.agent_runtime import (
     AgentRuntime,
     AuditLog,
@@ -89,8 +91,36 @@ def build_erp_tool_definitions() -> dict[str, ToolDefinition]:
             name="erp.get_order_status",
             risk=ToolRisk.READ,
             description="Return a tenant-scoped ERP order status with provenance.",
-        )
+            argument_schema=(("order_id", "string"),),
+        ),
+        "erp.create_return": ToolDefinition(
+            name="erp.create_return",
+            risk=ToolRisk.WRITE,
+            description="Create a reviewed return request for a tenant-scoped order.",
+            allowed_roles=frozenset({"manager", "admin"}),
+            argument_schema=(("order_id", "string"), ("reason", "string")),
+        ),
     }
+
+
+def build_agent_tool_allowlist() -> frozenset[str]:
+    """Load the Agent manifest allowlist without treating its prose as policy."""
+
+    manifest_path = (
+        Path(__file__).resolve().parents[1] / "agents" / "customer-service" / "agent.yaml"
+    )
+    try:
+        raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise RuntimeError("customer-service Agent manifest could not be loaded") from exc
+    allow = raw.get("mcp", {}).get("allow") if isinstance(raw, dict) else None
+    if (
+        not isinstance(allow, list)
+        or not allow
+        or any(not isinstance(tool, str) or not tool.strip() for tool in allow)
+    ):
+        raise RuntimeError("customer-service Agent manifest must declare a non-empty MCP allowlist")
+    return frozenset(tool.strip() for tool in allow)
 
 
 def build_runtime(
@@ -147,6 +177,13 @@ def build_runtime(
             )
 
         approval_verifier = verify_approval
+    allowed_tools = build_agent_tool_allowlist()
+    unknown_tools = allowed_tools - set(gateway.definitions)
+    if unknown_tools:
+        raise RuntimeError(
+            "customer-service Agent manifest references unregistered tools: "
+            + ", ".join(sorted(unknown_tools))
+        )
     return (
         AgentRuntime(
             PolicyEngine(gateway.definitions, approval_verifier=approval_verifier),
@@ -154,6 +191,7 @@ def build_runtime(
             audit_log,
             trace_exporter=trace_exporter,
             model_provider=configured_model,
+            allowed_tools=allowed_tools,
         ),
         audit_log,
     )

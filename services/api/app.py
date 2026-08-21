@@ -38,6 +38,7 @@ from packages.agent_runtime import (
     SqliteAuditStore,
     SQLiteRunStore,
     StoredRun,
+    ToolExecution,
     ToolRisk,
 )
 from packages.agent_runtime.network import is_disallowed_host
@@ -73,6 +74,12 @@ class RunRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     order_id: str | None = Field(default=None, min_length=1, max_length=128)
     allow_external_processing: bool = False
+
+
+class ToolExecuteRequest(BaseModel):
+    arguments: dict[str, object] = Field(default_factory=dict)
+    approval_id: str | None = Field(default=None, min_length=1, max_length=256)
+    approval_token: str | None = Field(default=None, min_length=1, max_length=512)
 
 
 class RunResponse(BaseModel):
@@ -179,6 +186,74 @@ class RunService:
             return None
         return stored
 
+    def find_idempotent(self, identity: IdentityContext, idempotency_key: str) -> StoredRun | None:
+        """Return a prior scoped run before a generic tool call is attempted."""
+
+        key = (
+            identity.workspace_id,
+            identity.tenant_id,
+            identity.user_id,
+            identity.role,
+            idempotency_key,
+        )
+        existing_run_id = self.idempotency.get(key)
+        if existing_run_id:
+            return self.runs.get(existing_run_id)
+        if self.store is None:
+            return None
+        stored = self.store.find_idempotent(identity, idempotency_key)
+        if stored is not None:
+            self.runs[stored.result.run_id] = stored
+            self.idempotency[key] = stored.result.run_id
+        return stored
+
+    def record_tool_execution(
+        self,
+        execution: ToolExecution,
+        identity: IdentityContext,
+        idempotency_key: str | None,
+    ) -> StoredRun:
+        """Persist a generic tool outcome without storing connector payloads."""
+
+        if execution.status is RunStatus.SUCCEEDED:
+            message = f"Tool {execution.tool_name} completed with verified provenance."
+        elif execution.status is RunStatus.BLOCKED:
+            message = "The requested tool operation was blocked by policy or approval."
+        elif execution.status is RunStatus.CANCELLED:
+            message = "The requested tool operation was cancelled before completion."
+        else:
+            message = "The requested tool operation did not complete successfully."
+        stored = StoredRun(
+            result=RunResult(
+                status=execution.status,
+                run_id=execution.run_id,
+                trace_id=execution.trace_id,
+                agent_id=self.runtime.agent_id,
+                message=message,
+                source_id=execution.result.source_id if execution.result.success else None,
+                observed_at=execution.result.observed_at if execution.result.success else None,
+                external_ref=execution.result.external_ref if execution.result.success else None,
+            ),
+            identity=identity,
+            idempotency_key=idempotency_key,
+        )
+        if self.store is not None:
+            persisted = self.store.save(stored)
+            if persisted is not None:
+                stored = persisted
+        self.runs[stored.result.run_id] = stored
+        if idempotency_key:
+            self.idempotency[
+                (
+                    identity.workspace_id,
+                    identity.tenant_id,
+                    identity.user_id,
+                    identity.role,
+                    idempotency_key,
+                )
+            ] = stored.result.run_id
+        return stored
+
 
 def _header_identity(
     user_id: Annotated[str | None, Header(alias="X-User-Id")] = None,
@@ -218,6 +293,39 @@ def _result_response(result: RunResult) -> JSONResponse:
     else:
         response_status = status.HTTP_502_BAD_GATEWAY
     return JSONResponse(status_code=response_status, content=_payload(result))
+
+
+def _tool_execution_payload(
+    execution: ToolExecution, *, agent_id: str = "customer-service-agent"
+) -> dict[str, object]:
+    """Return a safe generic tool response; approval credentials never echo."""
+
+    payload: dict[str, object] = {
+        "status": execution.status.value,
+        "run_id": execution.run_id,
+        "trace_id": execution.trace_id,
+        "agent_id": agent_id,
+        "tool_name": execution.tool_name,
+        "decision": execution.decision.outcome,
+    }
+    if execution.status is RunStatus.SUCCEEDED:
+        payload.update(
+            {
+                "data": execution.result.data,
+                "source_id": execution.result.source_id,
+                "observed_at": execution.result.observed_at,
+                "external_ref": execution.result.external_ref,
+            }
+        )
+    elif execution.decision.outcome == "approval_required":
+        payload["message"] = "A durable approval is required before this tool can execute."
+    elif execution.decision.outcome == "deny":
+        payload["message"] = "The requested tool operation is not authorized."
+    elif execution.status is RunStatus.CANCELLED:
+        payload["message"] = "The requested tool operation was cancelled before the call."
+    else:
+        payload["message"] = "The tool call failed or returned unverifiable provenance."
+    return payload
 
 
 def _attachment_payload(record: AttachmentRecord) -> dict[str, object]:
@@ -262,8 +370,9 @@ def _record_attachment_event(
     attachment_id: str,
     payload: dict[str, object],
     request_id: str | None = None,
+    trace_id: str | None = None,
 ) -> None:
-    trace_id = f"attachment-trace-{uuid.uuid4().hex}"
+    trace_id = trace_id or f"attachment-trace-{uuid.uuid4().hex}"
     audit.append(
         AuditEvent(
             event_type=event_type,
@@ -567,7 +676,13 @@ def create_app(
         return {
             "workspace_id": identity.workspace_id,
             "tenant_id": identity.tenant_id,
-            "agents": [{"id": runtime.agent_id, "status": "ready", "tool_count": 1}],
+            "agents": [
+                {
+                    "id": runtime.agent_id,
+                    "status": "ready",
+                    "tool_count": len(runtime.tool_definitions()),
+                }
+            ],
             "mcp": [
                 {
                     "id": mcp_health.get("server_id", "mcp"),
@@ -620,6 +735,14 @@ def create_app(
             raise HTTPException(status_code=404, detail="tool is not registered")
         if definition.risk is ToolRisk.READ:
             raise HTTPException(status_code=422, detail="read operations do not require approval")
+        argument_error = runtime.validate_tool_arguments(definition.name, request.arguments)
+        if argument_error:
+            raise HTTPException(status_code=422, detail=argument_error)
+        if definition.risk is not ToolRisk.READ and not request.idempotency_key:
+            raise HTTPException(
+                status_code=422,
+                detail="high-risk approval requests require an explicit idempotency_key",
+            )
         decision = runtime.policy_decision(identity, definition.name)
         if decision.outcome == "deny":
             raise HTTPException(
@@ -707,6 +830,69 @@ def create_app(
         )
         return record.as_dict()
 
+    @application.post("/api/v1/tools/{tool_name}/execute")
+    def execute_registered_tool(
+        tool_name: str,
+        request: ToolExecuteRequest,
+        http_request: Request,
+        identity: IdentityContext = Depends(request_identity),  # noqa: B008
+        idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+    ) -> JSONResponse:
+        """Execute a registered tool through the policy and approval boundary."""
+
+        if not re.fullmatch(r"[a-z0-9_.-]{1,256}", tool_name):
+            raise HTTPException(status_code=422, detail="tool name is invalid")
+        if idempotency_key is not None and (
+            not idempotency_key.strip()
+            or len(idempotency_key) > 200
+            or any(character in idempotency_key for character in "\r\n")
+        ):
+            raise HTTPException(status_code=422, detail="Idempotency-Key must be 1-200 characters")
+        if idempotency_key:
+            existing = service.find_idempotent(identity, idempotency_key)
+            if existing is not None:
+                replay = _payload(existing.result)
+                replay.update({"tool_name": tool_name, "replayed": True})
+                return JSONResponse(
+                    status_code=(
+                        status.HTTP_200_OK
+                        if existing.result.status is RunStatus.SUCCEEDED
+                        else status.HTTP_409_CONFLICT
+                    ),
+                    content=replay,
+                )
+        execution = runtime.execute_tool(
+            identity,
+            tool_name,
+            request.arguments,
+            request_id=getattr(http_request.state, "request_id", None),
+            trace_id=getattr(http_request.state, "trace_id", None),
+            idempotency_key=idempotency_key,
+            approval_id=request.approval_id,
+            approval_token=request.approval_token,
+        )
+        persistence_key = (
+            idempotency_key
+            if execution.status not in {RunStatus.BLOCKED, RunStatus.CANCELLED}
+            else None
+        )
+        service.record_tool_execution(execution, identity, persistence_key)
+        metrics_registry.increment("tool_calls_total", {"status": execution.status.value})
+        if execution.status is RunStatus.SUCCEEDED:
+            response_status = status.HTTP_200_OK
+        elif execution.decision.outcome == "deny":
+            response_status = status.HTTP_403_FORBIDDEN
+        elif execution.decision.outcome == "approval_required":
+            response_status = status.HTTP_409_CONFLICT
+        elif execution.status is RunStatus.CANCELLED:
+            response_status = status.HTTP_409_CONFLICT
+        else:
+            response_status = status.HTTP_502_BAD_GATEWAY
+        return JSONResponse(
+            status_code=response_status,
+            content=_tool_execution_payload(execution, agent_id=runtime.agent_id),
+        )
+
     @application.post("/api/v1/runs")
     def create_run(
         request: RunRequest,
@@ -779,7 +965,14 @@ def create_app(
                     "version": "0.2.0",
                     "status": "developer_preview",
                     "skills": ["order-status"],
-                    "tools": [runtime.tool_name],
+                    "tools": [
+                        {
+                            "name": name,
+                            "risk": definition.risk.value,
+                            "description": definition.description,
+                        }
+                        for name, definition in runtime.tool_definitions().items()
+                    ],
                 }
             ]
         }
@@ -940,6 +1133,9 @@ def create_app(
                 task=request.task,
                 prompt=request.prompt,
                 allow_external_processing=request.allow_external_processing,
+                request_id=getattr(http_request.state, "request_id", None),
+                trace_id=getattr(http_request.state, "trace_id", None),
+                run_id=f"attachment-{attachment_id}",
             )
         except AttachmentNotFound as exc:
             raise HTTPException(status_code=404, detail="attachment was not found") from exc
@@ -976,6 +1172,7 @@ def create_app(
                 "sha256": record.sha256,
             },
             request_id=getattr(http_request.state, "request_id", None),
+            trace_id=getattr(http_request.state, "trace_id", None),
         )
         metrics_registry.increment("attachments_total", {"operation": "analyze"})
         return {"attachment_id": attachment_id, **result.as_dict()}

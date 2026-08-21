@@ -246,7 +246,11 @@ class ApprovalServiceTests(unittest.TestCase):
         created = client.post(
             "/api/v1/approvals",
             headers={**requester, "X-Request-Id": "approval-http-1"},
-            json={"tool_name": "erp.create_return", "arguments": {"order_id": "SO-1001"}},
+            json={
+                "tool_name": "erp.create_return",
+                "arguments": {"order_id": "SO-1001"},
+                "idempotency_key": "approval-http-1-return",
+            },
         )
         self.assertEqual(created.status_code, 201, created.text)
         approval_id = created.json()["id"]

@@ -566,7 +566,11 @@ class ApprovalService:
         arguments: Mapping[str, object],
     ) -> bool:
         record = self.get(identity, approval_id)
-        if record.status != ApprovalStatus.APPROVED or record.tool_name != tool_name:
+        if (
+            record.status != ApprovalStatus.APPROVED
+            or record.tool_name != tool_name
+            or record.requester.user_id != identity.user_id
+        ):
             return False
         _, digest = _arguments_digest(arguments)
         if not hmac.compare_digest(record.arguments_hash, digest):

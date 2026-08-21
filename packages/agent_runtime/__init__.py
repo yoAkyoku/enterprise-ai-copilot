@@ -20,7 +20,9 @@ from .models import (
     IdentityContext,
     RunResult,
     RunStatus,
+    ToolCallRequest,
     ToolDefinition,
+    ToolExecution,
     ToolResult,
     ToolRisk,
 )
@@ -55,6 +57,7 @@ __all__ = [
     "RedisRateLimiter",
     "RunResult",
     "RunStatus",
+    "ToolCallRequest",
     "RunStore",
     "SQLiteApprovalStore",
     "SQLiteRunStore",
@@ -62,6 +65,7 @@ __all__ = [
     "StoredRun",
     "StreamableHttpMcpGateway",
     "ToolDefinition",
+    "ToolExecution",
     "ToolResult",
     "ToolRisk",
 ]

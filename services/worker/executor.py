@@ -54,6 +54,10 @@ def validate_agent_schedule(schedule: ScheduleDefinition) -> None:
 
     if schedule.agent != AgentRuntime.agent_id:
         raise WorkerConfigurationError("scheduled Agent is not registered in this worker image")
+    if schedule.permissions_mode != "read_only":
+        raise WorkerConfigurationError(
+            "scheduled high-risk actions require a dedicated approval-bound action executor"
+        )
     if not isinstance(schedule.query, str) or not schedule.query.strip():
         raise WorkerConfigurationError("scheduled Agent requires run.query")
     if not isinstance(schedule.order_id, str) or not schedule.order_id.strip():

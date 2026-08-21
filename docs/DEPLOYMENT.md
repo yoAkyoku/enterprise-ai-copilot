@@ -28,6 +28,13 @@ Before starting the API, provision and test:
   documented single-node SQLite mode;
 - TLS termination, ingress authentication/rate limits and centralized logs.
 
+If Plugins are enabled in a production deployment, configure the registry with
+trusted publisher Ed25519 public keys and require signatures. The key map is a
+deployment configuration reference, not a repository file; rotate keys by
+publishing a new trusted key before packages signed by the old key are retired.
+The local CLI registry defaults to review plus integrity checks for development,
+but that mode is not a production supply-chain control.
+
 Copy `deploy/production.env.example` into a secret-managed file, replace every
 `example.invalid` host and `REPLACE_*` value, and inject secret values through
 the deployment platform. Never commit the resulting file or credentials.
@@ -161,6 +168,12 @@ would consume jobs but would not produce future scheduled jobs. Run the worker
 as a separate process with the same immutable image and
 production environment. Production and staging require real Agent execution;
 the dry-run mode is for local contract checks only:
+
+The current scheduled Agent executor is deliberately read-only. A schedule with
+`permissions.mode: approved_write` is rejected before queue execution because a
+scheduled job has no user-bound, argument-bound approval grant. Use the API's
+approval-bound tool execution path for high-risk actions, or implement and review
+a separate schedule action executor before enabling unattended writes.
 
 ```powershell
 python -m services.worker.main schedules/order-status-demo.yaml `

@@ -44,6 +44,7 @@ _ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$")
 _RISK_VALUES = {"read", "write", "external_send", "destructive"}
 _TRANSPORT_VALUES = {"in_memory", "stdio", "streamable_http"}
+_ARGUMENT_TYPES = {"string", "number", "boolean", "object", "array"}
 _MAX_TEXT = 4000
 
 
@@ -263,6 +264,14 @@ def validate_mcp_config(path: str | Path) -> ValidationReport:
                 report.issues.append(f"tool {name!r} must declare allow_roles")
             if not isinstance(tool.get("external_write"), bool):
                 report.issues.append(f"tool {name!r} must declare external_write")
+            argument_schema = tool.get("argument_schema")
+            if not isinstance(argument_schema, dict) or any(
+                not isinstance(argument_name, str)
+                or not re.fullmatch(r"^[a-z][a-z0-9_]{0,63}$", argument_name)
+                or argument_type not in _ARGUMENT_TYPES
+                for argument_name, argument_type in argument_schema.items()
+            ):
+                report.issues.append(f"tool {name!r} must declare a valid argument_schema mapping")
     return report
 
 
@@ -372,6 +381,43 @@ def plugin_integrity(plugin_dir: str | Path) -> str:
     return digest.hexdigest()
 
 
+def plugin_signature_digest(plugin_dir: str | Path) -> str:
+    """Return the digest signed by a Plugin publisher.
+
+    The signature field itself is removed from the manifest before hashing so
+    the signature does not create a circular dependency. The ordinary
+    ``plugin_integrity`` value still covers the exact installed bytes.
+    """
+
+    root = Path(plugin_dir).resolve()
+    digest = hashlib.sha256()
+    for path in sorted(
+        item for item in root.rglob("*") if item.is_file() and ".git" not in item.parts
+    ):
+        relative = path.relative_to(root).as_posix()
+        digest.update(relative.encode("utf-8"))
+        if relative == ".codex-plugin/plugin.json":
+            try:
+                manifest = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ContractValidationError(
+                    f"cannot read Plugin manifest for signature digest: {exc}"
+                ) from exc
+            signing = manifest.get("signing")
+            if isinstance(signing, dict):
+                signing = dict(signing)
+                signing.pop("signature", None)
+                manifest = dict(manifest)
+                manifest["signing"] = signing
+            content = json.dumps(
+                manifest, ensure_ascii=True, separators=(",", ":"), sort_keys=True
+            ).encode("utf-8")
+            digest.update(hashlib.sha256(content).hexdigest().encode("ascii"))
+        else:
+            digest.update(_file_digest(path).encode("ascii"))
+    return digest.hexdigest()
+
+
 def validate_plugin(path: str | Path) -> ValidationReport:
     plugin_dir = Path(path)
     manifest_path = plugin_dir / ".codex-plugin" / "plugin.json"
@@ -424,6 +470,17 @@ def validate_plugin(path: str | Path) -> ValidationReport:
         not isinstance(item, str) for item in dependencies
     ):
         report.issues.append("dependencies must be a list of strings")
+    signing = mapping.get("signing")
+    if signing is not None:
+        if not isinstance(signing, dict):
+            report.issues.append("signing must be a mapping")
+        else:
+            for field_name in ("key_id", "signature"):
+                value = signing.get(field_name)
+                if not isinstance(value, str) or not value.strip():
+                    report.issues.append(f"signing.{field_name} must be a non-empty string")
+                elif len(value) > 4096:
+                    report.issues.append(f"signing.{field_name} exceeds 4096 characters")
     return report
 
 

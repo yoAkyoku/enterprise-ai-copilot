@@ -7,3 +7,5 @@ servers:
         risk: read
         allow_roles: [customer, support, sales, manager, admin]
         external_write: false
+        argument_schema:
+          order_id: string

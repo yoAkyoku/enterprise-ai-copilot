@@ -20,15 +20,30 @@ class PolicyEngine:
         approval_verifier: ApprovalVerifier | None = None,
     ) -> None:
         self._tools = dict(tools)
-        configured_roles = role_allowlist or {
-            "customer": frozenset({"erp.get_order_status"}),
-            "support": frozenset({"erp.get_order_status"}),
-            "sales": frozenset({"erp.get_order_status"}),
-            "manager": frozenset({"erp.get_order_status"}),
-            "admin": frozenset({"erp.get_order_status"}),
-        }
+        configured_roles = role_allowlist or self._role_allowlist_from_definitions(self._tools)
         self._role_allowlist = {role: frozenset(tools) for role, tools in configured_roles.items()}
         self._approval_verifier = approval_verifier
+
+    @staticmethod
+    def _role_allowlist_from_definitions(
+        tools: Mapping[str, ToolDefinition],
+    ) -> dict[str, frozenset[str]]:
+        """Build a default role matrix from reviewed tool declarations.
+
+        Read tools retain the first-slice convenience matrix. Higher-risk tools
+        must explicitly declare their allowed roles in the typed definition;
+        an omitted declaration therefore cannot accidentally grant write access.
+        """
+
+        roles = {role: set() for role in ("customer", "support", "sales", "manager", "admin")}
+        for name, definition in tools.items():
+            allowed_roles = definition.allowed_roles
+            if not allowed_roles and definition.risk is ToolRisk.READ:
+                allowed_roles = frozenset(roles)
+            for role in allowed_roles:
+                if role in roles:
+                    roles[role].add(name)
+        return {role: frozenset(names) for role, names in roles.items()}
 
     def authorize(
         self,

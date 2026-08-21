@@ -9,6 +9,7 @@ skills:
 mcp:
   allow:
     - erp.get_order_status
+    - erp.create_return
 approval:
   read: auto
   write: required

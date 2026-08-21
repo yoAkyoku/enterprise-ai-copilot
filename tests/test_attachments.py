@@ -386,16 +386,23 @@ class AttachmentApiTests(unittest.TestCase):
                 return Response()
 
         with patch("urllib.request.build_opener", return_value=Opener()):
-            text = provider.analyze(
+            text = provider.analyze_with_context(
                 b"image-bytes",
                 "image/png",
                 task="ocr",
                 prompt="Use only visible evidence.",
+                request_id="req-vision-1",
+                trace_id="trace-vision-1",
+                run_id="run-vision-1",
             )
 
         self.assertEqual(text, "ORDER 1001")
         outgoing = captured["request"]
         self.assertEqual(outgoing.get_header("Authorization"), "Bearer vision-secret")
+        outgoing_headers = {key.lower(): value for key, value in outgoing.header_items()}
+        self.assertEqual(outgoing_headers["x-request-id"], "req-vision-1")
+        self.assertEqual(outgoing_headers["x-trace-id"], "trace-vision-1")
+        self.assertEqual(outgoing_headers["x-run-id"], "run-vision-1")
         self.assertEqual(captured["timeout"], 30.0)
         payload = json.loads(outgoing.data)
         self.assertEqual(payload["model"], "vision-model")
