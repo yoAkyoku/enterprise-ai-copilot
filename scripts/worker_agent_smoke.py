@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from redis import Redis
 
-from packages.scheduler import RedisJobQueue, ScheduleStatus, Scheduler, load_schedule
+from packages.scheduler import RedisJobQueue, Scheduler, ScheduleStatus, load_schedule
 from services.bootstrap import build_runtime
 from services.worker.executor import (
     AgentScheduleExecutor,
