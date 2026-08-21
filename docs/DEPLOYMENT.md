@@ -16,6 +16,8 @@ Before starting the API, provision and test:
   and returns provenance (`source_id`, `observed_at`, `external_ref`);
 - Redis for distributed rate limits and scheduled worker queue delivery;
 - an OTLP/HTTP trace collector with an HTTPS allowlisted endpoint;
+- an OpenAI-compatible model endpoint if model explanations are enabled; it
+  must be HTTPS, host-allowlisted and receive only consented, verified evidence;
 - an S3-compatible bucket with server-side encryption and a lifecycle policy;
 - ClamAV or an equivalent reviewed scanner reachable through the clamd protocol;
 - a persistent volume for `/app/.data`, encrypted backups and a tested restore;
@@ -28,14 +30,20 @@ the deployment platform. Never commit the resulting file or credentials.
 ## Compose deployment
 
 The checked-in `docker-compose.yml` is safe for local and small self-hosted
-deployments. It uses the development `.env.example` by default. To select a
-production environment file, export the file path before starting the stack:
+development deployments. Production uses the separate API/worker profile so a
+long-running worker is not accidentally omitted:
 
 ```powershell
 $env:AGENT_ENV_FILE = ".env.production"
-docker compose config --quiet
-docker compose up -d --build
+docker compose --project-directory . -f deploy/docker-compose.production.yml config --quiet
+docker compose --project-directory . -f deploy/docker-compose.production.yml up -d --build
 ```
+
+The production profile runs the API, a continuous Redis Streams worker and
+Redis. It binds the API to loopback for a TLS reverse proxy, uses a read-only
+container filesystem, and restarts the API/worker after failure. Replace the
+example env file with a secret-managed file before starting; the checked-in
+example intentionally points at `example.invalid` and is not a live deployment.
 
 Place the API behind a TLS reverse proxy; do not expose the unauthenticated
 development port directly to the public Internet. The production environment
@@ -43,7 +51,9 @@ must set `AGENT_PLATFORM_ENV=production`, `AGENT_PROVIDER_MODE=remote`,
 `AGENT_AUTH_MODE=oidc_jwks` (or reviewed `jwt_hs256`), S3 storage, malware
 scanning, positive retention, `AGENT_REDIS_URL` and
 `AGENT_TRACE_ENDPOINT`/`AGENT_TRACE_ALLOWED_HOSTS`. Startup fails closed when
-these requirements are missing.
+these requirements are missing. Production also requires the model endpoint,
+API key, model name and exact model host allowlist; a model call still requires
+per-request or per-schedule `allow_external_processing=true`.
 
 ### HS256 rotation when OIDC is unavailable
 
@@ -101,7 +111,7 @@ the dry-run mode is for local contract checks only:
 
 ```powershell
 python -m services.worker.main schedules/order-status-demo.yaml `
-  --redis-url $env:AGENT_REDIS_URL --queue-mode consume `
+  --redis-url $env:AGENT_REDIS_URL --queue-mode consume --continuous `
   --execution-mode agent --worker-id worker-01
 ```
 
@@ -113,6 +123,13 @@ trusted identity through the same policy/MCP boundary as the API, and exports
 the same privacy-safe OTLP tool spans. Keep the Redis consumer group and
 `claim_after_seconds` longer than the maximum expected task runtime; verify
 reclaim and cancellation behavior in the target deployment.
+
+Model output is an optional explanation layer. The API and schedule contract
+default to no external model processing. When consent is enabled, the runtime
+still composes the verified ERP status itself and labels returned model prose
+as `Model explanation (unverified)`. A provider failure produces a partial
+success with the verified status preserved; it never becomes external-state
+confirmation.
 
 ## Backup, rollback and release evidence
 

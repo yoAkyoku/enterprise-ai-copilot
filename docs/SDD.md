@@ -303,6 +303,7 @@ run:
   max_concurrency: 1
   retry_limit: 2
   catch_up: false
+  allow_external_processing: false
 
 permissions:
   mode: read_only
@@ -391,6 +392,11 @@ Remote MCP、OIDC/JWKS、Vision/OCR and object-storage endpoints MUST use HTTPS,
 an exact host allowlist, literal private/loopback/metadata host rejection,
 no-redirect transport and bounded response reads. Custom ports are preserved
 only after the same endpoint validation.
+
+Text model calls MUST use a reviewed provider adapter, send only server-verified
+evidence, require explicit per-request or per-schedule external-processing
+consent, and label free-form model output as unverified. Model failure MUST NOT
+be reported as external-system success.
 
 Database MCP 只能使用 allowlisted read-only views 或 parameterized procedures，不得提供任意 SQL。
 
@@ -627,7 +633,9 @@ The v0.1 preview has made the following decisions; the remaining items are
 explicitly deferred：
 
 1. License: Apache-2.0.
-2. First supported model providers.
+2. The first supported text model contract is OpenAI-compatible chat
+   completions; operators must still review the concrete provider, egress
+   policy, retention and data-processing terms before enabling it.
 3. Whether v1 supports one or multiple workspaces.
 4. Whether pgvector is enough for v1 or an external vector store is required.
 5. Whether browser and host Shell are v1 or post-v1 features.

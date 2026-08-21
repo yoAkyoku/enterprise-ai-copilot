@@ -15,6 +15,8 @@ run:
   catch_up: false
   query: "Provide the verified order status for the scheduled briefing."
   order_id: SO-1001
+  # External model processing is opt-in and requires deployment consent.
+  allow_external_processing: false
 
 permissions:
   mode: read_only

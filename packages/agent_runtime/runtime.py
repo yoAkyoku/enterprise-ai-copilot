@@ -10,6 +10,7 @@ from packages.observability import TraceExporter, TraceRecord, new_span_id
 
 from .audit import AuditLog
 from .mcp import McpGateway
+from .model import ModelCompletion, ModelProvider, ModelProviderError
 from .models import (
     AuditEvent,
     IdentityContext,
@@ -32,16 +33,25 @@ class AgentRuntime:
         gateway: McpGateway,
         audit: AuditLog,
         trace_exporter: TraceExporter | None = None,
+        model_provider: ModelProvider | None = None,
     ) -> None:
         self._policy = policy
         self._gateway = gateway
         self._audit = audit
         self._trace_exporter = trace_exporter
+        self._model_provider = model_provider
 
     def gateway_health(self) -> dict[str, str]:
         """Expose transport health without exposing gateway credentials."""
 
         return self._gateway.health()
+
+    def model_health(self) -> dict[str, str]:
+        """Expose model configuration health without making a provider call."""
+
+        if self._model_provider is None:
+            return {"provider": "none", "model": "none", "status": "disabled"}
+        return self._model_provider.health()
 
     def tool_definition(self, tool_name: str) -> ToolDefinition | None:
         """Expose only the registered typed definition to the API boundary."""
@@ -67,6 +77,7 @@ class AgentRuntime:
         order_id: str | None = None,
         request_id: str | None = None,
         trace_id: str | None = None,
+        allow_external_model_processing: bool = False,
     ) -> RunResult:
         request_id = request_id or f"req-{uuid4()}"
         trace_id = trace_id or f"trace-{uuid4()}"
@@ -196,9 +207,114 @@ class AgentRuntime:
             )
 
         status = tool_result.data.get("status", "unknown")
-        message = f"Order {order_id.strip()} is {status}. Observed at {tool_result.observed_at}."
+        verified_message = (
+            f"Order {order_id.strip()} is {status}. Observed at {tool_result.observed_at}."
+        )
+        message = verified_message
+        result_status = RunStatus.SUCCEEDED
+        if self._model_provider is not None:
+            if not allow_external_model_processing:
+                self._audit.append(
+                    AuditEvent(
+                        event_type="model.blocked",
+                        request_id=request_id,
+                        trace_id=trace_id,
+                        run_id=run_id,
+                        workspace_id=identity.workspace_id,
+                        agent_id=self.agent_id,
+                        payload={
+                            "provider": self._model_provider.provider_id,
+                            "reason": "external_processing_consent_required",
+                            "tenant_id": identity.tenant_id,
+                        },
+                    )
+                )
+                message = f"{verified_message} Model explanation was not requested."
+            else:
+                model_started = time.time_ns()
+                try:
+                    completion = self._model_provider.complete(
+                        query,
+                        {
+                            "order_id": order_id.strip(),
+                            "status": str(status),
+                            "source_id": tool_result.source_id,
+                            "observed_at": tool_result.observed_at or "",
+                        },
+                        request_id=request_id,
+                        trace_id=trace_id,
+                        run_id=run_id,
+                    )
+                    if (
+                        not isinstance(completion, ModelCompletion)
+                        or not isinstance(completion.provider, str)
+                        or not completion.provider.strip()
+                        or not isinstance(completion.model, str)
+                        or not completion.model.strip()
+                        or not isinstance(completion.text, str)
+                        or not completion.text.strip()
+                        or len(completion.text) > 32_000
+                    ):
+                        raise ModelProviderError("model provider returned an invalid completion")
+                except ModelProviderError as exc:
+                    result_status = RunStatus.PARTIAL_SUCCESS
+                    self._export_model_span(
+                        request_id=request_id,
+                        trace_id=trace_id,
+                        run_id=run_id,
+                        identity=identity,
+                        started_at=model_started,
+                        provider=self._model_provider.provider_id,
+                        model=self._model_provider.model,
+                        success=False,
+                    )
+                    self._audit.append(
+                        AuditEvent(
+                            event_type="model.failed",
+                            request_id=request_id,
+                            trace_id=trace_id,
+                            run_id=run_id,
+                            workspace_id=identity.workspace_id,
+                            agent_id=self.agent_id,
+                            payload={
+                                "provider": self._model_provider.provider_id,
+                                "error_type": type(exc).__name__,
+                                "tenant_id": identity.tenant_id,
+                            },
+                        )
+                    )
+                    message = f"{verified_message} Model explanation is unavailable."
+                else:
+                    self._audit.append(
+                        AuditEvent(
+                            event_type="model.completed",
+                            request_id=request_id,
+                            trace_id=trace_id,
+                            run_id=run_id,
+                            workspace_id=identity.workspace_id,
+                            agent_id=self.agent_id,
+                            payload={
+                                "provider": completion.provider,
+                                "model": completion.model,
+                                "tenant_id": identity.tenant_id,
+                            },
+                        )
+                    )
+                    self._export_model_span(
+                        request_id=request_id,
+                        trace_id=trace_id,
+                        run_id=run_id,
+                        identity=identity,
+                        started_at=model_started,
+                        provider=completion.provider,
+                        model=completion.model,
+                        success=True,
+                    )
+                    message = (
+                        f"{verified_message}\n\nModel explanation (unverified): {completion.text}"
+                    )
         result = RunResult(
-            status=RunStatus.SUCCEEDED,
+            status=result_status,
             run_id=run_id,
             trace_id=trace_id,
             agent_id=self.agent_id,
@@ -209,7 +325,7 @@ class AgentRuntime:
         )
         self._audit.append(
             AuditEvent(
-                event_type="run.succeeded",
+                event_type=f"run.{result.status.value}",
                 request_id=request_id,
                 trace_id=trace_id,
                 run_id=run_id,
@@ -223,6 +339,53 @@ class AgentRuntime:
             )
         )
         return result
+
+    def _export_model_span(
+        self,
+        *,
+        request_id: str,
+        trace_id: str,
+        run_id: str,
+        identity: IdentityContext,
+        started_at: int,
+        provider: str,
+        model: str,
+        success: bool,
+    ) -> None:
+        if self._trace_exporter is None:
+            return
+        try:
+            self._trace_exporter.export(
+                TraceRecord(
+                    trace_id=trace_id,
+                    span_id=new_span_id(),
+                    name="agent.model",
+                    start_time_unix_nano=started_at,
+                    end_time_unix_nano=time.time_ns(),
+                    attributes={
+                        "request_id": request_id,
+                        "run_id": run_id,
+                        "provider": provider,
+                        "model": model,
+                        "success": success,
+                        "workspace_hash": hashlib.sha256(
+                            identity.workspace_id.encode("utf-8")
+                        ).hexdigest()[:16],
+                    },
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - trace failure is retained, not propagated
+            self._audit.append(
+                AuditEvent(
+                    event_type="trace.export_failed",
+                    request_id=request_id,
+                    trace_id=trace_id,
+                    run_id=run_id,
+                    workspace_id=identity.workspace_id,
+                    agent_id=self.agent_id,
+                    payload={"error_type": type(exc).__name__, "tool": "model"},
+                )
+            )
 
     def _export_tool_span(
         self,
@@ -277,6 +440,9 @@ class AgentRuntime:
         trace_id: str,
         run_id: str,
         identity: IdentityContext,
+        source_id: str | None = None,
+        observed_at: str | None = None,
+        external_ref: str | None = None,
     ) -> RunResult:
         self._audit.append(
             AuditEvent(
@@ -295,4 +461,7 @@ class AgentRuntime:
             trace_id=trace_id,
             agent_id=self.agent_id,
             message=message,
+            source_id=source_id,
+            observed_at=observed_at,
+            external_ref=external_ref,
         )

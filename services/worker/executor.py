@@ -75,6 +75,7 @@ def build_schedule_job_payload(
         "permissions_mode": schedule.permissions_mode,
         "query": schedule.query,
         "order_id": schedule.order_id,
+        "allow_external_processing": schedule.allow_external_processing,
     }
 
 
@@ -91,6 +92,7 @@ def validate_schedule_job_payload(
         "permissions_mode": schedule.permissions_mode,
         "query": schedule.query,
         "order_id": schedule.order_id,
+        "allow_external_processing": schedule.allow_external_processing,
     }
     expected_keys = set(expected) | {"scheduled_at"}
     if set(payload) != expected_keys or any(
@@ -125,6 +127,7 @@ class AgentScheduleExecutor:
             order_id=schedule.order_id,
             request_id=f"schedule-request-{digest[:32]}",
             trace_id=f"schedule-trace-{digest[:32]}",
+            allow_external_model_processing=schedule.allow_external_processing,
         )
         if result.status is not RunStatus.SUCCEEDED:
             raise WorkerExecutionError("scheduled Agent did not produce verified success")

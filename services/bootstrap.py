@@ -12,10 +12,54 @@ from packages.agent_runtime import (
     IdentityContext,
     InMemoryMcpGateway,
     McpGateway,
+    ModelProvider,
+    OpenAICompatibleModelProvider,
     PolicyEngine,
     StreamableHttpMcpGateway,
+    ToolDefinition,
+    ToolRisk,
 )
 from packages.observability import OtlpHttpTraceExporter, TraceExporter
+
+
+def build_model_provider(platform_env: str | None = None) -> ModelProvider | None:
+    """Build the reviewed, consent-gated model adapter from deployment config."""
+
+    resolved_env = (platform_env or os.getenv("AGENT_PLATFORM_ENV", "development")).lower()
+    endpoint = os.getenv("AGENT_MODEL_ENDPOINT", "").strip()
+    api_key = os.getenv("AGENT_MODEL_API_KEY", "").strip()
+    model = os.getenv("AGENT_MODEL_NAME", "").strip()
+    values = (endpoint, api_key, model)
+    if not any(values):
+        if resolved_env in {"staging", "production"}:
+            raise RuntimeError(
+                "staging and production require AGENT_MODEL_ENDPOINT, "
+                "AGENT_MODEL_API_KEY and AGENT_MODEL_NAME"
+            )
+        return None
+    if not all(values):
+        raise RuntimeError(
+            "AGENT_MODEL_ENDPOINT, AGENT_MODEL_API_KEY and AGENT_MODEL_NAME "
+            "must be configured together"
+        )
+    try:
+        timeout_seconds = float(os.getenv("AGENT_MODEL_TIMEOUT_SECONDS", "30"))
+        max_output_chars = int(os.getenv("AGENT_MODEL_MAX_OUTPUT_CHARS", "4000"))
+    except ValueError as exc:
+        raise RuntimeError("model timeout and output limit must be numeric") from exc
+    allowed_hosts = [
+        item.strip()
+        for item in os.getenv("AGENT_MODEL_ALLOWED_HOSTS", "").split(",")
+        if item.strip()
+    ]
+    return OpenAICompatibleModelProvider(
+        endpoint,
+        api_key,
+        model,
+        allowed_hosts=allowed_hosts,
+        timeout_seconds=timeout_seconds,
+        max_output_chars=max_output_chars,
+    )
 
 
 def build_trace_exporter(platform_env: str | None = None) -> TraceExporter | None:
@@ -35,9 +79,22 @@ def build_trace_exporter(platform_env: str | None = None) -> TraceExporter | Non
     )
 
 
+def build_erp_tool_definitions() -> dict[str, ToolDefinition]:
+    """Return the reviewed ERP contract shared by local and remote gateways."""
+
+    return {
+        "erp.get_order_status": ToolDefinition(
+            name="erp.get_order_status",
+            risk=ToolRisk.READ,
+            description="Return a tenant-scoped ERP order status with provenance.",
+        )
+    }
+
+
 def build_runtime(
     audit: AuditLog | None = None,
     trace_exporter: TraceExporter | None = None,
+    model_provider: ModelProvider | None = None,
 ) -> tuple[AgentRuntime, AuditLog]:
     seed_path = Path(__file__).resolve().parents[1] / "data" / "demo" / "orders.json"
     if seed_path.is_file():
@@ -57,21 +114,24 @@ def build_runtime(
         endpoint = os.getenv("AGENT_MCP_ENDPOINT", "").strip()
         if not endpoint:
             raise RuntimeError("AGENT_MCP_ENDPOINT is required when AGENT_PROVIDER_MODE=remote")
-        synthetic_definitions = InMemoryMcpGateway({}).definitions
         gateway = StreamableHttpMcpGateway(
             endpoint,
-            synthetic_definitions,
+            build_erp_tool_definitions(),
             allowed_hosts=os.getenv("AGENT_MCP_ALLOWED_HOSTS", "").split(","),
             bearer_token=os.getenv("AGENT_MCP_BEARER_TOKEN") or None,
             timeout_seconds=float(os.getenv("AGENT_MCP_TIMEOUT_SECONDS", "10")),
         )
     audit_log = audit or AuditLog()
+    configured_model = model_provider
+    if configured_model is None:
+        configured_model = build_model_provider()
     return (
         AgentRuntime(
             PolicyEngine(gateway.definitions),
             gateway,
             audit_log,
             trace_exporter=trace_exporter,
+            model_provider=configured_model,
         ),
         audit_log,
     )

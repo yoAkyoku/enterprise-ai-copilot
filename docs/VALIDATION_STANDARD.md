@@ -242,6 +242,16 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | IMG-007 | browser flow | authenticated upload, preview, failure and delete-confirmation states pass browser E2E |
 | IMG-008 | object storage | production attachment storage uses an encrypted, bounded, allowlisted object-store adapter |
 
+### 6.12 Text model provider
+
+| ID | Check | Required result |
+|---|---|---|
+| MOD-001 | provider boundary | model calls use a replaceable, HTTPS allowlisted adapter |
+| MOD-002 | consent | API and schedules default to no external model processing |
+| MOD-003 | grounding | only server-verified evidence is sent to the model |
+| MOD-004 | output labeling | model prose is explicitly unverified and cannot become external confirmation |
+| MOD-005 | failure state | provider timeout/error is visible as failure or partial success |
+
 ## 7. Reference end-to-end scenarios
 
 ### E2E-001 Customer order status

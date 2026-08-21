@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import argparse
 import os
+from collections.abc import Callable
 from datetime import UTC, datetime
 
-from packages.scheduler import RedisJobQueue, ScheduleDefinition, Scheduler, load_schedule
+from packages.scheduler import Job, RedisJobQueue, ScheduleDefinition, Scheduler, load_schedule
 from services.bootstrap import build_runtime, build_trace_exporter
 from services.worker.executor import (
     AgentScheduleExecutor,
@@ -28,6 +29,48 @@ def _preview_dry_run(schedule: ScheduleDefinition, idempotency_key: str) -> str:
     )
 
 
+def _consume_job(
+    queue: RedisJobQueue,
+    definition: ScheduleDefinition,
+    scheduler: Scheduler,
+    job: Job,
+    execute: Callable[[ScheduleDefinition, str], str],
+    platform_env: str,
+) -> int:
+    """Validate, claim, execute and acknowledge one queued schedule job."""
+
+    payload = job.payload
+    queued_at = validate_schedule_job_payload(payload, definition)
+    scheduled = definition.scheduled_for(queued_at)
+    if scheduled is None:
+        run = scheduler.trigger(definition.id, queued_at, execute)
+    else:
+        run_key = f"{definition.id}:{scheduled.astimezone(UTC).isoformat()}"
+        claim = queue.claim_run(
+            run_key,
+            lease_seconds=max(60, min(definition.max_runtime_seconds + 30, 86400)),
+        )
+        if claim.status != "claimed":
+            queue.ack(job)
+            print(f"schedule={definition.id} status=deduplicated claim={claim.status}")
+            return 0
+        if claim.token is None:
+            raise RuntimeError("Redis returned a claimed run without a token")
+        run = scheduler.trigger(definition.id, queued_at, execute)
+        queue.complete_run(run.idempotency_key, claim.token)
+    queue.ack(job)
+    message = (
+        run.message
+        if platform_env not in {"staging", "production"}
+        else "terminal schedule state recorded"
+    )
+    print(
+        f"schedule={run.schedule_id} status={run.status} attempts={run.attempts} "
+        f"idempotency_key={run.idempotency_key} message={message}"
+    )
+    return 0 if run.status.value in {"succeeded", "skipped", "paused", "expired"} else 1
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run a policy-checked scheduled Agent")
     parser.add_argument("schedule")
@@ -38,6 +81,11 @@ def main() -> int:
     )
     parser.add_argument("--worker-id", help="Redis Streams consumer name")
     parser.add_argument("--block-seconds", type=int, default=5)
+    parser.add_argument(
+        "--continuous",
+        action="store_true",
+        help="Keep consuming after an empty poll; required by a long-running worker service",
+    )
     parser.add_argument(
         "--execution-mode",
         choices=("dry-run", "agent"),
@@ -73,46 +121,22 @@ def main() -> int:
                 job = queue.enqueue(build_schedule_job_payload(definition, now))
                 print(f"queued job={job.id} schedule={definition.id}")
                 return 0
-            job = queue.receive(block_seconds=args.block_seconds)
-            if job is None:
-                print("no queued job")
-                return 0
-            payload = job.payload
-            queued_at = validate_schedule_job_payload(payload, definition)
             if execution_mode == "agent":
                 runtime, _audit = build_runtime(trace_exporter=build_trace_exporter(platform_env))
                 executor = AgentScheduleExecutor(runtime, build_worker_identity(platform_env))
                 execute = executor.execute
             else:
                 execute = _distributed_dry_run
-            scheduled = definition.scheduled_for(queued_at)
-            if scheduled is None:
-                run = scheduler.trigger(definition.id, queued_at, execute)
-            else:
-                run_key = f"{definition.id}:{scheduled.astimezone(UTC).isoformat()}"
-                claim = queue.claim_run(
-                    run_key,
-                    lease_seconds=max(60, min(definition.max_runtime_seconds + 30, 86400)),
-                )
-                if claim.status != "claimed":
-                    queue.ack(job)
-                    print(f"schedule={definition.id} status=deduplicated claim={claim.status}")
+            while True:
+                job = queue.receive(block_seconds=args.block_seconds)
+                if job is None:
+                    if args.continuous:
+                        continue
+                    print("no queued job")
                     return 0
-                if claim.token is None:
-                    raise RuntimeError("Redis returned a claimed run without a token")
-                run = scheduler.trigger(definition.id, queued_at, execute)
-                queue.complete_run(run.idempotency_key, claim.token)
-            queue.ack(job)
-            message = (
-                run.message
-                if platform_env not in {"staging", "production"}
-                else "terminal schedule state recorded"
-            )
-            print(
-                f"schedule={run.schedule_id} status={run.status} attempts={run.attempts} "
-                f"idempotency_key={run.idempotency_key} message={message}"
-            )
-            return 0 if run.status.value in {"succeeded", "skipped", "paused", "expired"} else 1
+                result = _consume_job(queue, definition, scheduler, job, execute, platform_env)
+                if result != 0 or not args.continuous:
+                    return result
         except (ImportError, OSError, ValueError, RuntimeError) as exc:
             print(f"queue worker failed: {exc}")
             return 1

@@ -324,6 +324,10 @@ def validate_schedule(path: str | Path) -> ValidationReport:
             report.issues.append(
                 "run.order_id must be a non-empty string of at most 128 characters"
             )
+        if run.get("allow_external_processing") is not None and not isinstance(
+            run["allow_external_processing"], bool
+        ):
+            report.issues.append("run.allow_external_processing must be a boolean")
     permissions = mapping.get("permissions")
     if not isinstance(permissions, dict) or permissions.get("mode") not in {
         "read_only",

@@ -65,6 +65,7 @@ _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 class RunRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     order_id: str | None = Field(default=None, min_length=1, max_length=128)
+    allow_external_processing: bool = False
 
 
 class RunResponse(BaseModel):
@@ -136,6 +137,7 @@ class RunService:
             order_id=request.order_id,
             request_id=request_id,
             trace_id=trace_id,
+            allow_external_model_processing=request.allow_external_processing,
         )
         stored = StoredRun(result=result, identity=identity, idempotency_key=idempotency_key)
         self.runs[result.run_id] = stored
@@ -461,6 +463,7 @@ def create_app(
 
     @application.get("/health")
     def health() -> dict[str, str]:
+        model_health = runtime.model_health()
         return {
             "status": "ok",
             "provider_mode": provider_mode or os.getenv("AGENT_PROVIDER_MODE", "synthetic"),
@@ -479,6 +482,9 @@ def create_app(
             "rate_limit_mode": rate_limit_mode,
             "approvals": "configured" if approval_service is not None else "unavailable",
             "trace_exporter": "configured" if trace_exporter is not None else "unavailable",
+            "model_provider": model_health.get("provider", "unknown"),
+            "model": model_health.get("model", "unknown"),
+            "model_status": model_health.get("status", "unknown"),
         }
 
     @application.get("/metrics", response_class=PlainTextResponse)
@@ -499,6 +505,7 @@ def create_app(
             if resolved_platform_env in {"staging", "production"}
             else True,
             "provider": runtime.gateway_health().get("status") == "healthy",
+            "model_provider": runtime.model_health().get("status") == "configured",
             "attachments": attachments is not None,
             "object_storage": attachments is not None and attachments.storage_mode == "s3",
             "durable_runs": run_store is not None,

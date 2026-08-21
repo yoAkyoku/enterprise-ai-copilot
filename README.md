@@ -50,6 +50,12 @@ staging/production startup, malware scanning and a positive retention period
 are required. Object storage and backup remain production connector gates; they
 are not silently claimed as executed in the synthetic release.
 
+The text-model boundary uses the same OpenAI-compatible contract. It receives
+only a user query plus server-verified evidence, requires explicit
+`allow_external_processing` consent, and labels returned prose as unverified.
+The production Compose profile starts the API, a continuous Redis worker and
+Redis; replace the example environment with secret-managed values before use.
+
 Multi-replica staging/production also requires `AGENT_REDIS_URL`; the API uses
 an atomic Redis limiter for upload and Vision/OCR abuse controls. Development
 without Redis intentionally uses an in-process limiter.

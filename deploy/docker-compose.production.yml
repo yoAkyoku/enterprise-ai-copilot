@@ -1,0 +1,85 @@
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ${AGENT_ENV_FILE:-deploy/production.env.example}
+    environment:
+      AGENT_API_HOST: 0.0.0.0
+      AGENT_DATA_DIR: /app/.data
+      AGENT_REDIS_URL: redis://redis:6379/0
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - agent-data:/app/.data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ${AGENT_ENV_FILE:-deploy/production.env.example}
+    environment:
+      AGENT_DATA_DIR: /app/.data
+      AGENT_REDIS_URL: redis://redis:6379/0
+      AGENT_PLATFORM_ENV: production
+      AGENT_WORKER_EXECUTION_MODE: agent
+    command:
+      [
+        "python",
+        "-m",
+        "services.worker.main",
+        "schedules/order-status-demo.yaml",
+        "--redis-url",
+        "redis://redis:6379/0",
+        "--queue-mode",
+        "consume",
+        "--execution-mode",
+        "agent",
+        "--worker-id",
+        "production-worker",
+        "--continuous"
+      ]
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - agent-data:/app/.data
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  agent-data:
+  redis-data:

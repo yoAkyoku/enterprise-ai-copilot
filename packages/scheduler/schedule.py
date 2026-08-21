@@ -59,6 +59,7 @@ class ScheduleDefinition:
     permissions_mode: str = "read_only"
     query: str | None = None
     order_id: str | None = None
+    allow_external_processing: bool = False
     expires_at: str | None = None
     notify_channel: str | None = None
     notify_only_if: str = "finding_or_failure"
@@ -179,6 +180,9 @@ def load_schedule(path: str | Path) -> ScheduleDefinition:
         raise TypeError("run.query must be a string")
     if order_id is not None and not isinstance(order_id, str):
         raise TypeError("run.order_id must be a string")
+    allow_external_processing = run.get("allow_external_processing", False)
+    if not isinstance(allow_external_processing, bool):
+        raise TypeError("run.allow_external_processing must be a boolean")
     return ScheduleDefinition(
         id=str(raw["id"]),
         version=str(raw["version"]),
@@ -195,6 +199,7 @@ def load_schedule(path: str | Path) -> ScheduleDefinition:
         permissions_mode=str(permissions.get("mode", "read_only")),
         query=query,
         order_id=order_id,
+        allow_external_processing=allow_external_processing,
         expires_at=schedule.get("expires_at"),
         notify_channel=str(notify["channel"]) if notify.get("channel") is not None else None,
         notify_only_if=str(notify.get("only_if", "finding_or_failure")),

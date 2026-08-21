@@ -34,17 +34,33 @@ jobs:
           python -m pip_audit
           python -m pip check
           docker compose config --quiet
+          docker compose --project-directory . -f deploy/docker-compose.production.yml config --quiet
           python scripts/release_gate.py
       - name: Build wheel
-        run: python -m pip wheel --no-cache-dir --no-deps --no-build-isolation --wheel-dir dist .
+        run: |
+          python -m pip wheel --no-cache-dir --no-deps --no-build-isolation --wheel-dir dist .
+          python scripts/generate_sbom.py --output dist/sbom.spdx.json
       - name: Create checksums
-        run: sha256sum dist/*.whl > dist/SHA256SUMS
-      - name: Upload release wheel
+        run: sha256sum dist/*.whl dist/*.spdx.json > dist/SHA256SUMS
+      - name: Verify checksum and install release artifact
+        run: |
+          sha256sum -c dist/SHA256SUMS
+          mkdir -p dist/install-check
+          python -m pip install --no-index --no-deps --target dist/install-check dist/*.whl
+          PYTHONPATH=dist/install-check python -c "import packages.agent_runtime.model; import services.bootstrap; print('artifact-install: PASS')"
+      - name: Migration and backup recovery smoke
+        run: |
+          python scripts/migrate.py /tmp/release-platform.sqlite3
+          python scripts/backup_sqlite.py /tmp/release-platform.sqlite3 /tmp/release-platform.backup.sqlite3
+      - name: Upload release artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: enterprise-ai-copilot-${{ github.ref_name }}
-          path: dist/*.whl
+          path: |
+            dist/*.whl
+            dist/*.spdx.json
+            dist/SHA256SUMS
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "${{ github.ref_name }}" dist/*.whl dist/SHA256SUMS --verify-tag --generate-notes
+        run: gh release create "${{ github.ref_name }}" dist/*.whl dist/*.spdx.json dist/SHA256SUMS --verify-tag --generate-notes

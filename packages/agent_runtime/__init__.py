@@ -14,6 +14,7 @@ from .auth import AuthenticationError, JwtHs256Authenticator, JwtJwksAuthenticat
 from .limits import InMemoryRateLimiter, RateLimiter, RedisRateLimiter
 from .mcp import InMemoryMcpGateway, McpGateway
 from .mcp_http import StreamableHttpMcpGateway
+from .model import ModelCompletion, ModelProvider, ModelProviderError, OpenAICompatibleModelProvider
 from .models import AuditEvent, IdentityContext, RunResult, RunStatus, ToolDefinition, ToolRisk
 from .policy import PolicyDecision, PolicyEngine
 from .runs import RunStore, SQLiteRunStore, StoredRun
@@ -36,6 +37,10 @@ __all__ = [
     "JwtHs256Authenticator",
     "JwtJwksAuthenticator",
     "McpGateway",
+    "ModelCompletion",
+    "ModelProvider",
+    "ModelProviderError",
+    "OpenAICompatibleModelProvider",
     "PolicyDecision",
     "PolicyEngine",
     "RateLimiter",
