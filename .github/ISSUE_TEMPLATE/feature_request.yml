@@ -1,0 +1,27 @@
+name: Feature request
+description: Propose an open-source platform improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Describe policy, tenant isolation, approval, audit and validation implications where relevant.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Security and operational constraints
+      description: Explain permissions, data retention, external egress and failure semantics.
+    validations:
+      required: true

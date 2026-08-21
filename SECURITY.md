@@ -19,9 +19,9 @@ or contact the repository owner privately before public disclosure.
 
 The current local track demonstrates fail-closed identity and tenant checks,
 signed HS256 JWT authentication, tool risk classification, provenance checks,
-durable SQLite audit/run/attachment metadata, image content validation and
-review-gated Plugin installation. Real MCP credentials, provider egress,
-OIDC/JWKS rotation, malware scanning, object-storage isolation, distributed
-worker durability, sandbox isolation, dependency/history scanning and hosted
-deployment remain out of scope until their validation gates are recorded as
-`PASS`.
+durable SQLite audit/run/attachment metadata, image content validation,
+privacy-safe traces, automated dependency/history scans and review-gated Plugin
+installation. Real MCP credentials, provider egress, OIDC/JWKS or executed
+HS256 rotation, malware scanning, object-storage isolation, distributed worker
+durability, sandbox isolation and hosted deployment remain unverified until
+their validation gates are recorded as `PASS`.

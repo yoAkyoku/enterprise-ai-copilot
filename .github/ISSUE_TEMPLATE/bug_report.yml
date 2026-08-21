@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible defect in the open-source platform.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: Do not include credentials, customer data, private URLs, tokens or raw provider payloads.
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Give the smallest synthetic fixture and exact commands needed to reproduce the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: dropdown
+    id: validation
+    attributes:
+      label: Validation scope
+      options:
+        - Local synthetic fixtures only
+        - GitHub Actions
+        - Self-hosted deployment
+        - External provider integration
+    validations:
+      required: true

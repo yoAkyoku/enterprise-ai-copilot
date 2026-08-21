@@ -8,7 +8,7 @@ The developer preview uses a small, declared Python dependency set and no
 external service. From a clean checkout with Python 3.12 or newer:
 
 ```text
-python -m pip install -e ".[dev]"
+python -m pip install -e ".[dev,security]"
 python -m compileall -q packages services tests scripts apps
 ruff check packages services tests scripts
 python -m unittest discover -s tests -v
