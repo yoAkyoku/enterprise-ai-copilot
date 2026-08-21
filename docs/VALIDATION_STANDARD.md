@@ -92,6 +92,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | INST-007 | doctor command | missing dependencies are actionable and non-secret |
 | INST-008 | clean shutdown/restart | state is recoverable after restart |
 | INST-009 | backup/restore | checked-in backup utility creates and verifies a restorable database artifact |
+| INST-010 | shared PostgreSQL store | migrations, scoped stores, idempotency and health probes pass against a disposable PostgreSQL service |
 
 ### 6.2 Configuration and manifests
 
@@ -211,6 +212,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | SEC-011 | container hardening | image runs as non-root where possible and has no embedded secret |
 | SEC-012 | supply chain | package integrity and source lineage are recorded |
 | SEC-013 | resource abuse | expensive or body-bearing endpoints fail closed with bounded rate and size controls |
+| SEC-015 | tenant-scoped audit reads | dashboard and run-event reads cannot mix tenants sharing one workspace |
 
 ### 6.10 API, UI and observability
 

@@ -21,6 +21,7 @@ class EventStore(Protocol):
         trace_id: str | None = None,
         run_id: str | None = None,
         workspace_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> list[AuditEvent]:
         """Return events ordered by insertion."""
 
@@ -50,20 +51,45 @@ class SqliteAuditStore:
                 trace_id TEXT NOT NULL,
                 run_id TEXT NOT NULL,
                 workspace_id TEXT NOT NULL,
+                tenant_id TEXT,
                 agent_id TEXT NOT NULL,
                 payload_json TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
             """
         )
+        self._ensure_tenant_column()
+        self._connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_run_events_scope "
+            "ON run_events(workspace_id, tenant_id, sequence)"
+        )
         self._connection.commit()
+
+    def _ensure_tenant_column(self) -> None:
+        columns = {str(row[1]) for row in self._connection.execute("PRAGMA table_info(run_events)")}
+        if "tenant_id" not in columns:
+            self._connection.execute("ALTER TABLE run_events ADD COLUMN tenant_id TEXT")
+        rows = self._connection.execute(
+            "SELECT sequence, payload_json FROM run_events WHERE tenant_id IS NULL"
+        ).fetchall()
+        for sequence, payload_json in rows:
+            try:
+                payload = json.loads(str(payload_json))
+            except (TypeError, ValueError):
+                continue
+            tenant_id = payload.get("tenant_id") if isinstance(payload, dict) else None
+            if isinstance(tenant_id, str) and tenant_id.strip():
+                self._connection.execute(
+                    "UPDATE run_events SET tenant_id = ? WHERE sequence = ?",
+                    (tenant_id, sequence),
+                )
 
     def append(self, event: AuditEvent) -> None:
         self._connection.execute(
             """
             INSERT INTO run_events
-              (event_type, request_id, trace_id, run_id, workspace_id, agent_id, payload_json, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+              (event_type, request_id, trace_id, run_id, workspace_id, tenant_id, agent_id, payload_json, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.event_type,
@@ -71,6 +97,7 @@ class SqliteAuditStore:
                 event.trace_id,
                 event.run_id,
                 event.workspace_id,
+                event.tenant_id,
                 event.agent_id,
                 json.dumps(event.payload, sort_keys=True, separators=(",", ":")),
                 event.created_at,
@@ -84,6 +111,7 @@ class SqliteAuditStore:
         trace_id: str | None = None,
         run_id: str | None = None,
         workspace_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> list[AuditEvent]:
         clauses: list[str] = []
         values: list[str] = []
@@ -96,6 +124,9 @@ class SqliteAuditStore:
         if workspace_id:
             clauses.append("workspace_id = ?")
             values.append(workspace_id)
+        if tenant_id:
+            clauses.append("tenant_id = ?")
+            values.append(tenant_id)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         rows = self._connection.execute(
             "SELECT event_type, request_id, trace_id, run_id, workspace_id, agent_id, payload_json, created_at "
@@ -155,15 +186,32 @@ class AuditLog:
         trace_id: str | None = None,
         run_id: str | None = None,
         workspace_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> Sequence[AuditEvent]:
+        """Return events filtered to the requested workspace and tenant.
+
+        Older storage schemas keep tenant scope inside the event payload. The
+        facade applies the tenant filter after the durable query so legacy
+        SQLite/PostgreSQL rows cannot broaden a tenant-scoped API response.
+        Events without an explicit tenant claim are intentionally excluded from
+        tenant-scoped reads.
+        """
+
         if self._store is not None:
-            return self._store.list_events(
-                trace_id=trace_id, run_id=run_id, workspace_id=workspace_id
+            events = self._store.list_events(
+                trace_id=trace_id,
+                run_id=run_id,
+                workspace_id=workspace_id,
+                tenant_id=tenant_id,
             )
-        return [
-            event
-            for event in self.events
-            if (trace_id is None or event.trace_id == trace_id)
-            and (run_id is None or event.run_id == run_id)
-            and (workspace_id is None or event.workspace_id == workspace_id)
-        ]
+        else:
+            events = [
+                event
+                for event in self.events
+                if (trace_id is None or event.trace_id == trace_id)
+                and (run_id is None or event.run_id == run_id)
+                and (workspace_id is None or event.workspace_id == workspace_id)
+            ]
+        if tenant_id is None:
+            return events
+        return [event for event in events if event.payload.get("tenant_id") == tenant_id]

@@ -143,13 +143,19 @@ checked-in migrations。SQLite 仍可供 local 或明確選擇的單節點部署
 不可由多個 API replicas 共用同一個 SQLite volume。PostgreSQL 的 failover、
 row-level policy、backup/restore 與水平擴展仍須在目標環境驗證。
 
-- Frontend: Next.js + TypeScript.
+- Frontend: static HTML/CSS/JavaScript Web console served by the API; the
+  browser boundary is intentionally replaceable by a typed SPA without
+  changing the API/runtime contracts.
 - API and runtime: FastAPI + Python.
 - Persistence: PostgreSQL.
 - Retrieval: pgvector adapter with a replaceable VectorStore interface.
 - Queue: Redis-backed worker.
 - Deployment: Docker Compose for local use; container images for production.
 - Observability: structured JSON logs, metrics and OpenTelemetry-compatible traces.
+
+Audit responses MUST apply both workspace and tenant scope. Legacy event rows
+that do not carry an explicit tenant claim are excluded from tenant-scoped API
+reads until they are reconciled; a workspace match alone is not sufficient.
 
 ## 5. Repository and configuration model
 

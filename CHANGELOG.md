@@ -21,6 +21,10 @@ All notable changes are documented here.
 - Added PostgreSQL shared-state adapters, checked-in PostgreSQL migrations,
   Compose migration gating and a password-safe custom-format backup helper;
   target backup/restore and failover evidence remain release gates.
+- Added tenant-scoped audit reads, pinned PostgreSQL CI services, hosted
+  PostgreSQL integration/backup recovery smoke and backup-wrapper tests.
+- Improved the Web console's dynamic runtime counts, date/status copy and
+  live-result accessibility states.
 
 ## 0.1.0-dev
 

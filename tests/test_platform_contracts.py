@@ -16,6 +16,7 @@ from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from packages.agent_runtime import (
+    AuditLog,
     AuthenticationError,
     IdentityContext,
     InMemoryMcpGateway,
@@ -177,6 +178,20 @@ class PlatformContractTests(unittest.TestCase):
             all(re.search(r"@[0-9a-f]{40}", line) for line in action_lines), action_lines
         )
 
+    def test_ci_service_images_and_postgres_release_smoke_are_pinned(self) -> None:
+        workflow_text = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((ROOT / ".github" / "workflows").glob("*.yml"))
+        )
+        service_images = [
+            line.strip() for line in workflow_text.splitlines() if line.strip().startswith("image:")
+        ]
+        self.assertGreaterEqual(len(service_images), 2)
+        self.assertTrue(all("@sha256:" in line for line in service_images), service_images)
+        self.assertIn("AGENT_TEST_POSTGRES_URL", workflow_text)
+        self.assertIn("pg_dump", workflow_text)
+        self.assertIn("pg_restore", workflow_text)
+
     def test_container_base_and_redis_images_are_immutable(self) -> None:
         dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
         compose = (ROOT / "deploy" / "docker-compose.production.yml").read_text(encoding="utf-8")
@@ -213,6 +228,62 @@ limits:
             self.assertTrue(
                 any("relative path" in issue or "inside" in issue for issue in report.issues)
             )
+
+    def test_audit_facade_filters_events_by_tenant_scope(self) -> None:
+        audit = AuditLog(
+            events=[
+                AuditEvent(
+                    event_type="tenant-a",
+                    request_id="request-a",
+                    trace_id="trace-a",
+                    run_id="run-a",
+                    workspace_id="workspace",
+                    agent_id="agent",
+                    payload={"tenant_id": "tenant-a"},
+                ),
+                AuditEvent(
+                    event_type="tenant-b",
+                    request_id="request-b",
+                    trace_id="trace-b",
+                    run_id="run-b",
+                    workspace_id="workspace",
+                    agent_id="agent",
+                    payload={"tenant_id": "tenant-b"},
+                ),
+                AuditEvent(
+                    event_type="legacy-unscoped",
+                    request_id="request-c",
+                    trace_id="trace-c",
+                    run_id="run-c",
+                    workspace_id="workspace",
+                    agent_id="agent",
+                    payload={},
+                ),
+            ]
+        )
+        scoped = audit.list_events(workspace_id="workspace", tenant_id="tenant-a")
+        self.assertEqual([event.event_type for event in scoped], ["tenant-a"])
+
+    def test_sqlite_audit_store_applies_database_tenant_predicate(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SqliteAuditStore(Path(directory) / "audit.sqlite3")
+            try:
+                for tenant_id in ("tenant-a", "tenant-b"):
+                    store.append(
+                        AuditEvent(
+                            event_type=tenant_id,
+                            request_id=f"request-{tenant_id}",
+                            trace_id=f"trace-{tenant_id}",
+                            run_id=f"run-{tenant_id}",
+                            workspace_id="workspace",
+                            agent_id="agent",
+                            payload={"tenant_id": tenant_id},
+                        )
+                    )
+                events = store.list_events(workspace_id="workspace", tenant_id="tenant-b")
+                self.assertEqual([event.event_type for event in events], ["tenant-b"])
+            finally:
+                store.close()
 
     def test_plugin_reserved_name_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -266,6 +337,46 @@ limits:
     def test_checked_in_migration_creates_run_events_table(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "migrated.sqlite3"
+            command = [sys.executable, str(ROOT / "scripts" / "migrate.py"), str(database)]
+            completed = subprocess.run(command, check=False, capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            rerun = subprocess.run(command, check=False, capture_output=True, text=True)
+            self.assertEqual(rerun.returncode, 0, rerun.stderr)
+            connection = sqlite3.connect(database)
+            tables = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='run_events'"
+            ).fetchall()
+            columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(run_events)")}
+            connection.close()
+            self.assertEqual(tables, [("run_events",)])
+            self.assertIn("tenant_id", columns)
+
+    def test_sqlite_migration_upgrades_legacy_audit_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "legacy.sqlite3"
+            connection = sqlite3.connect(database)
+            connection.executescript(
+                """
+                CREATE TABLE run_events (
+                    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_type TEXT NOT NULL,
+                    request_id TEXT NOT NULL,
+                    trace_id TEXT NOT NULL,
+                    run_id TEXT NOT NULL,
+                    workspace_id TEXT NOT NULL,
+                    agent_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                INSERT INTO run_events
+                    (event_type, request_id, trace_id, run_id, workspace_id, agent_id, payload_json, created_at)
+                VALUES
+                    ('legacy', 'request', 'trace', 'run', 'workspace', 'agent', '{"tenant_id":"tenant-a"}', '2026-01-01T00:00:00+00:00');
+                """
+            )
+            connection.commit()
+            connection.close()
+
             completed = subprocess.run(
                 [sys.executable, str(ROOT / "scripts" / "migrate.py"), str(database)],
                 check=False,
@@ -273,12 +384,12 @@ limits:
                 text=True,
             )
             self.assertEqual(completed.returncode, 0, completed.stderr)
-            connection = sqlite3.connect(database)
-            tables = connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='run_events'"
-            ).fetchall()
-            connection.close()
-            self.assertEqual(tables, [("run_events",)])
+            store = SqliteAuditStore(database)
+            try:
+                events = store.list_events(workspace_id="workspace", tenant_id="tenant-a")
+            finally:
+                store.close()
+            self.assertEqual([event.event_type for event in events], ["legacy"])
 
     def test_sqlite_backup_and_restore_integrity_check(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

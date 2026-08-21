@@ -50,6 +50,7 @@
     }).join("");
     $("#agent-grid").innerHTML = html || `<div class="loading-card">No agents are currently registered.</div>`;
     $("#agent-directory").innerHTML = html || `<div class="loading-card">No agents are currently registered.</div>`;
+    $("#agent-nav-count").textContent = agents.length;
   }
 
   function renderActivity(recent) {
@@ -125,6 +126,7 @@
     dashboard = payload;
     $("#workspace-name").textContent = payload.workspace_id || "workspace";
     $("#connection-label").textContent = "API CONNECTED";
+    $("#hero-date").textContent = new Intl.DateTimeFormat("en-US", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date()).toUpperCase();
     $("#metric-agents").textContent = payload.agents.length;
     $("#metric-mcp").textContent = payload.mcp.filter((service) => service.status === "healthy").length;
     $("#metric-approvals").textContent = payload.approvals.pending;

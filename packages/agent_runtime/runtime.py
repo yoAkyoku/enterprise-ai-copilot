@@ -383,7 +383,11 @@ class AgentRuntime:
                     run_id=run_id,
                     workspace_id=identity.workspace_id,
                     agent_id=self.agent_id,
-                    payload={"error_type": type(exc).__name__, "tool": "model"},
+                    payload={
+                        "error_type": type(exc).__name__,
+                        "tenant_id": identity.tenant_id,
+                        "tool": "model",
+                    },
                 )
             )
 
@@ -427,7 +431,11 @@ class AgentRuntime:
                     run_id=run_id,
                     workspace_id=identity.workspace_id,
                     agent_id=self.agent_id,
-                    payload={"error_type": type(exc).__name__, "tool": self.tool_name},
+                    payload={
+                        "error_type": type(exc).__name__,
+                        "tenant_id": identity.tenant_id,
+                        "tool": self.tool_name,
+                    },
                 )
             )
 

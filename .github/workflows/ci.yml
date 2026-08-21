@@ -30,6 +30,20 @@ jobs:
 
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+        env:
+          POSTGRES_DB: agent_platform
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: smoke-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent_platform"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -49,6 +63,8 @@ jobs:
       - name: Format check
         run: python -m ruff format --check packages services tests scripts
       - name: Unit and contract tests
+        env:
+          AGENT_TEST_POSTGRES_URL: postgresql://agent:smoke-password@127.0.0.1:5432/agent_platform
         run: python -m unittest discover -s tests -v
       - name: Manifest and repository validation
         run: python -m services.cli validate && python -m services.cli doctor
@@ -104,7 +120,7 @@ jobs:
       - name: Verify production image assets
         run: >-
           docker run --rm --entrypoint python enterprise-ai-copilot:ci -c
-          "from pathlib import Path; assert Path('/app/scripts/production_preflight.py').is_file(); assert Path('/app/scripts/connector_smoke.py').is_file(); assert Path('/app/infra/migrations/001_run_events.sql').is_file(); print('production-image-assets: PASS')"
+          "from pathlib import Path; import psycopg; assert Path('/app/scripts/production_preflight.py').is_file(); assert Path('/app/scripts/connector_smoke.py').is_file(); assert Path('/app/scripts/migrate_postgres.py').is_file(); assert Path('/app/scripts/backup_postgres.py').is_file(); assert Path('/app/infra/migrations/postgres/001_run_events.sql').is_file(); print('production-image-assets: PASS')"
       - name: Stop stack
         if: always()
         run: docker compose down -v
@@ -113,7 +129,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       redis:
-        image: redis:7.4-alpine
+        image: redis:7.4-alpine@sha256:ff02b58f971e7d7d156a1267e283fcbbeee91773b6aa36c49dac28ecfe28eadf
         ports:
           - 6379:6379
         options: >-

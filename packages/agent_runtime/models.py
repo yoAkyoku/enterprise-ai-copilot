@@ -86,6 +86,13 @@ class AuditEvent:
     payload: dict[str, Any]
     created_at: str = field(default_factory=utc_now)
 
+    @property
+    def tenant_id(self) -> str | None:
+        """Return the explicit tenant scope carried by this audit event."""
+
+        value = self.payload.get("tenant_id")
+        return value if isinstance(value, str) and value.strip() else None
+
 
 @dataclass(frozen=True)
 class RunResult:

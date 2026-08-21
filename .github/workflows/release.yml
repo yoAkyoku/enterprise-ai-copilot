@@ -11,6 +11,20 @@ permissions:
 jobs:
   artifact:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+        env:
+          POSTGRES_DB: agent_platform
+          POSTGRES_USER: agent
+          POSTGRES_PASSWORD: smoke-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U agent -d agent_platform"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -28,7 +42,7 @@ jobs:
           python -m compileall -q packages services tests scripts apps
           python -m ruff check packages services tests scripts
           python -m ruff format --check packages services tests scripts
-          python -m unittest discover -s tests -v
+          AGENT_TEST_POSTGRES_URL=postgresql://agent:smoke-password@127.0.0.1:5432/agent_platform python -m unittest discover -s tests -v
           python -m services.cli validate
           python scripts/check_secrets.py --git-history
           python -m pip_audit
@@ -36,7 +50,7 @@ jobs:
           docker compose config --quiet
           docker compose --project-directory . -f deploy/docker-compose.production.yml config --quiet
           docker build --tag enterprise-ai-copilot:${{ github.ref_name }} .
-          docker run --rm --entrypoint python enterprise-ai-copilot:${{ github.ref_name }} -c "from pathlib import Path; assert Path('/app/scripts/production_preflight.py').is_file(); assert Path('/app/infra/migrations/001_run_events.sql').is_file(); print('production-image-assets: PASS')"
+          docker run --rm --entrypoint python enterprise-ai-copilot:${{ github.ref_name }} -c "from pathlib import Path; import psycopg; assert Path('/app/scripts/production_preflight.py').is_file(); assert Path('/app/scripts/migrate_postgres.py').is_file(); assert Path('/app/scripts/backup_postgres.py').is_file(); assert Path('/app/infra/migrations/postgres/001_run_events.sql').is_file(); print('production-image-assets: PASS')"
           docker run --rm -v /var/run/docker.sock:/var/run/docker.sock docker.io/aquasec/trivy@sha256:5c59e08f980b5d4d503329773480fcea2c9bdad7e381d846fbf9f2ecb8050f6b image --exit-code 1 --ignore-unfixed --vuln-type os,library --severity HIGH,CRITICAL enterprise-ai-copilot:${{ github.ref_name }}
           python scripts/release_gate.py
       - name: Build wheel
@@ -51,7 +65,18 @@ jobs:
           mkdir -p dist/install-check
           python -m pip install --no-index --no-deps --target dist/install-check dist/*.whl
           PYTHONPATH=dist/install-check python -c "import packages.agent_runtime.model; import services.bootstrap; print('artifact-install: PASS')"
-      - name: Migration and backup recovery smoke
+      - name: PostgreSQL backup recovery smoke
+        env:
+          PGPASSWORD: smoke-password
+        run: |
+          docker run --rm --network host -e PGPASSWORD postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685 sh -eu -c '
+            pg_dump --format=custom --no-owner --no-acl --host=127.0.0.1 --port=5432 --username=agent --dbname=agent_platform --file=/tmp/release.dump
+            createdb --host=127.0.0.1 --port=5432 --username=agent agent_platform_restore
+            pg_restore --no-owner --host=127.0.0.1 --port=5432 --username=agent --dbname=agent_platform_restore /tmp/release.dump
+            test "$(psql --host=127.0.0.1 --port=5432 --username=agent --dbname=agent_platform_restore --tuples-only --command="select count(*) from schema_migrations;" | tr -d '[:space:]')" -ge 1
+          '
+
+      - name: SQLite migration and backup recovery smoke
         run: |
           python scripts/migrate.py /tmp/release-platform.sqlite3
           python scripts/backup_sqlite.py /tmp/release-platform.sqlite3 /tmp/release-platform.backup.sqlite3

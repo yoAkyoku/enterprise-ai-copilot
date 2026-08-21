@@ -555,7 +555,12 @@ def create_app(
     def dashboard(identity: IdentityContext = Depends(request_identity)) -> dict[str, object]:  # noqa: B008
         configured_attachments = _attachment_service_required(attachments)
         records = configured_attachments.list(identity)
-        scoped_events = list(audit.list_events(workspace_id=identity.workspace_id))
+        scoped_events = list(
+            audit.list_events(
+                workspace_id=identity.workspace_id,
+                tenant_id=identity.tenant_id,
+            )
+        )
         events = scoped_events[-12:]
         mcp_health = runtime.gateway_health()
         return {
@@ -739,7 +744,11 @@ def create_app(
         stored = service.get(run_id, identity)
         if stored is None:
             raise HTTPException(status_code=404, detail="run was not found")
-        events = service.audit.list_events(run_id=run_id)
+        events = service.audit.list_events(
+            run_id=run_id,
+            workspace_id=identity.workspace_id,
+            tenant_id=identity.tenant_id,
+        )
         return {
             "run_id": run_id,
             "trace_id": stored.result.trace_id,

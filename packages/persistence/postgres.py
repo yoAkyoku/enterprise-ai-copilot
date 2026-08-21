@@ -83,11 +83,15 @@ class PostgresAuditStore(_PostgresStore):
                     trace_id TEXT NOT NULL,
                     run_id TEXT NOT NULL,
                     workspace_id TEXT NOT NULL,
+                    tenant_id TEXT,
                     agent_id TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 )
                 """,
+                "ALTER TABLE run_events ADD COLUMN IF NOT EXISTS tenant_id TEXT",
+                "UPDATE run_events SET tenant_id = payload_json::jsonb ->> 'tenant_id' WHERE tenant_id IS NULL",
+                "CREATE INDEX IF NOT EXISTS idx_run_events_scope ON run_events(workspace_id, tenant_id, sequence)",
             )
         )
 
@@ -97,14 +101,15 @@ class PostgresAuditStore(_PostgresStore):
                 with self._connection.cursor() as cursor:
                     cursor.execute(
                         "INSERT INTO run_events "
-                        "(event_type, request_id, trace_id, run_id, workspace_id, agent_id, payload_json, created_at) "
-                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                        "(event_type, request_id, trace_id, run_id, workspace_id, tenant_id, agent_id, payload_json, created_at) "
+                        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                         (
                             event.event_type,
                             event.request_id,
                             event.trace_id,
                             event.run_id,
                             event.workspace_id,
+                            event.tenant_id,
                             event.agent_id,
                             json.dumps(event.payload, sort_keys=True, separators=(",", ":")),
                             event.created_at,
@@ -121,6 +126,7 @@ class PostgresAuditStore(_PostgresStore):
         trace_id: str | None = None,
         run_id: str | None = None,
         workspace_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> list[AuditEvent]:
         clauses: list[str] = []
         values: list[str] = []
@@ -133,6 +139,9 @@ class PostgresAuditStore(_PostgresStore):
         if workspace_id:
             clauses.append("workspace_id = %s")
             values.append(workspace_id)
+        if tenant_id:
+            clauses.append("tenant_id = %s")
+            values.append(tenant_id)
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
         with self._lock, self._connection.cursor() as cursor:
             cursor.execute(

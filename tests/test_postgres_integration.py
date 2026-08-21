@@ -61,11 +61,16 @@ class PostgresIntegrationTests(unittest.TestCase):
                     run_id=f"run-{suffix}",
                     workspace_id=identity.workspace_id,
                     agent_id="customer-service",
-                    payload={"verified": True},
+                    payload={"tenant_id": identity.tenant_id, "verified": True},
                 )
             )
             self.assertEqual(
-                len(audit.list_events(workspace_id=identity.workspace_id)),
+                len(
+                    audit.list_events(
+                        workspace_id=identity.workspace_id,
+                        tenant_id=identity.tenant_id,
+                    )
+                ),
                 1,
             )
 
