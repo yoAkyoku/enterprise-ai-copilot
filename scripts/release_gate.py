@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -12,6 +13,18 @@ CHECKLIST = ROOT / "docs" / "release" / "v0.2.0-production-track.md"
 EVIDENCE = ROOT / "docs" / "validation" / "evidence-index.csv"
 ALLOWED_STATUSES = {"PASS", "WAIVED"}
 SHA = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _is_reachable_ancestor(commit: str) -> bool:
+    """Require evidence to refer to a real commit reachable from the release."""
+
+    result = subprocess.run(
+        ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    return result.returncode == 0
 
 
 def main() -> int:
@@ -45,6 +58,7 @@ def main() -> int:
         f"{row.get('id', '<unknown>')}={row.get('commit', '<missing>')}"
         for row in rows
         if not SHA.fullmatch(row.get("commit", ""))
+        or not _is_reachable_ancestor(row.get("commit", ""))
     ]
     if malformed:
         print("release-gate: malformed evidence rows: " + ", ".join(malformed), file=sys.stderr)

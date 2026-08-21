@@ -103,6 +103,7 @@ and recording the decision in the release evidence.
 
 A release is not production-ready until the corresponding rows in
 `docs/validation/evidence-index.csv` are `PASS` or explicitly `WAIVED` with
-owner, expiry, risk and compensating control. In particular, local synthetic
-tests do not prove OIDC, ERP/MCP, S3, ClamAV, Redis worker, Docker, browser or
-hosted deployment behavior.
+owner, expiry, risk and compensating control. The release gate also verifies
+that every evidence commit exists and is reachable from the release commit.
+In particular, local synthetic tests do not prove OIDC, ERP/MCP, S3, ClamAV,
+Redis worker, Docker, browser or hosted deployment behavior.
