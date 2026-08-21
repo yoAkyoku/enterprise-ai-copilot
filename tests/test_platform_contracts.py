@@ -632,6 +632,30 @@ limits:
         self.assertEqual(cancelled.status, ScheduleStatus.CANCELLED)
         self.assertFalse(called)
 
+        remote_key = "remote-cancel-schedule:2030-01-01T01:00:00+00:00"
+        remote_scheduler = Scheduler(cancel_checker=lambda key: key == remote_key)
+        remote_definition = ScheduleDefinition(
+            id="remote-cancel-schedule",
+            version="0.1.0",
+            agent="customer-service-agent",
+            schedule_type="one_shot",
+            at="2030-01-01T09:00:00+08:00",
+            timezone_name="Asia/Taipei",
+        )
+        remote_scheduler.register(remote_definition)
+        remote_called = False
+
+        def remote_should_not_run(_definition, _key):  # type: ignore[no-untyped-def]
+            nonlocal remote_called
+            remote_called = True
+            return "unexpected"
+
+        remote_run = remote_scheduler.trigger(
+            remote_definition.id, trigger_time, remote_should_not_run
+        )
+        self.assertEqual(remote_run.status, ScheduleStatus.CANCELLED)
+        self.assertFalse(remote_called)
+
     def test_job_queue_preserves_payload_and_ack_boundary(self) -> None:
         queue = InMemoryJobQueue()
         job = queue.enqueue({"schedule_id": "schedule-1", "tenant_id": "tenant-a"})

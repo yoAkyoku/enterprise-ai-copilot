@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import time
+from collections.abc import Callable
 from uuid import uuid4
 
 from packages.observability import TraceExporter, TraceRecord, new_span_id
@@ -80,6 +81,7 @@ class AgentRuntime:
         request_id: str | None = None,
         trace_id: str | None = None,
         allow_external_model_processing: bool = False,
+        cancel_checker: Callable[[], bool] | None = None,
     ) -> RunResult:
         request_id = request_id or f"req-{uuid4()}"
         trace_id = trace_id or f"trace-{uuid4()}"
@@ -144,6 +146,16 @@ class AgentRuntime:
             return self._finish(
                 status=RunStatus.BLOCKED,
                 message="This request is not authorized for the requested operation.",
+                request_id=request_id,
+                trace_id=trace_id,
+                run_id=run_id,
+                identity=identity,
+            )
+
+        if cancel_checker is not None and cancel_checker():
+            return self._finish(
+                status=RunStatus.CANCELLED,
+                message="This run was cancelled before the ERP tool call.",
                 request_id=request_id,
                 trace_id=trace_id,
                 run_id=run_id,
@@ -227,6 +239,19 @@ class AgentRuntime:
                 trace_id=trace_id,
                 run_id=run_id,
                 identity=identity,
+            )
+
+        if cancel_checker is not None and cancel_checker():
+            return self._finish(
+                status=RunStatus.CANCELLED,
+                message="This run was cancelled before the next external operation.",
+                request_id=request_id,
+                trace_id=trace_id,
+                run_id=run_id,
+                identity=identity,
+                source_id=tool_result.source_id,
+                observed_at=tool_result.observed_at,
+                external_ref=tool_result.external_ref,
             )
 
         status = returned_status

@@ -175,7 +175,21 @@ version, task inputs and exact payload keys before execution, passes the
 trusted identity through the same policy/MCP boundary as the API, and exports
 the same privacy-safe OTLP tool spans. Keep the Redis consumer group and
 `claim_after_seconds` longer than the maximum expected task runtime; verify
-reclaim and cancellation behavior in the target deployment.
+reclaim and cancellation behavior in the target deployment. To issue an
+operator-approved cooperative cancellation marker for a known schedule slot,
+use the same immutable image and the deployment Redis secret:
+
+```powershell
+python -m scripts.cancel_schedule_run `
+  --redis-url $env:AGENT_REDIS_URL `
+  --idempotency-key "order-status-demo:2030-01-01T01:00:00+00:00" `
+  --confirm-cancel
+```
+
+The command is idempotent and cannot replace a `completed` marker. Cancellation
+is cooperative: it prevents a queued/retrying run and prevents the next ERP or
+model call after the worker observes the marker; it cannot undo an external
+call that was already in flight.
 
 Model output is an optional explanation layer. The API and schedule contract
 default to no external model processing. When consent is enabled, the runtime

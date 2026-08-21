@@ -209,13 +209,18 @@ def load_schedule(path: str | Path) -> ScheduleDefinition:
 class Scheduler:
     """Synchronous scheduler facade with idempotent run history."""
 
-    def __init__(self, notifier: NotificationSink | None = None) -> None:
+    def __init__(
+        self,
+        notifier: NotificationSink | None = None,
+        cancel_checker: Callable[[str], bool] | None = None,
+    ) -> None:
         self._definitions: dict[str, ScheduleDefinition] = {}
         self._history: dict[str, ScheduleRun] = {}
         self._paused: set[str] = set()
         self._active: dict[str, int] = {}
         self._cancelled: set[str] = set()
         self._notifier = notifier
+        self._cancel_checker = cancel_checker
 
     def register(self, definition: ScheduleDefinition) -> None:
         if (
@@ -250,6 +255,11 @@ class Scheduler:
         if not idempotency_key or len(idempotency_key) > 256:
             raise ValueError("invalid schedule idempotency key")
         self._cancelled.add(idempotency_key)
+
+    def _is_cancelled(self, idempotency_key: str) -> bool:
+        return idempotency_key in self._cancelled or (
+            self._cancel_checker is not None and self._cancel_checker(idempotency_key)
+        )
 
     def history(self, schedule_id: str | None = None) -> list[ScheduleRun]:
         values = list(self._history.values())
@@ -296,7 +306,7 @@ class Scheduler:
         key = f"{schedule_id}:{scheduled.isoformat()}"
         if key in self._history:
             return self._history[key]
-        if key in self._cancelled:
+        if self._is_cancelled(key):
             return self._record(
                 schedule_id,
                 "cancelled",
@@ -314,7 +324,7 @@ class Scheduler:
         attempts = 0
         try:
             while attempts <= definition.retry_limit:
-                if key in self._cancelled:
+                if self._is_cancelled(key):
                     return self._record(
                         schedule_id,
                         "cancelled",

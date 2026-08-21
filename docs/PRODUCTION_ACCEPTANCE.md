@@ -22,9 +22,11 @@ production environment.
   workflow ends. The restore DSN must identify a separate, pre-provisioned
   empty database; the dump is never uploaded as an artifact.
 - `redis_worker_smoke.py` uses a unique stream and consumer group to verify
-  target Redis reconnect and abandoned-job reclaim. It deletes the synthetic
-  stream in `finally`; durable cancellation and retry evidence still require
-  the target worker/API acceptance path.
+  target Redis reconnect, abandoned-job reclaim and cooperative cancellation
+  markers. It deletes the synthetic stream in `finally`; durable retry and
+  full worker/API cancellation evidence still require the target acceptance
+  path. Operators can use `scripts/cancel_schedule_run.py` with
+  `--confirm-cancel` for a reviewed schedule idempotency key.
 - Logs and artifacts contain statuses, HTTP codes and safe check names only;
   tokens, provider response bodies, image bytes and full URLs are not printed.
 - A successful workflow is evidence for the exact checked-out commit and

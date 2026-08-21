@@ -130,7 +130,9 @@ v1 SHOULD be a modular monolith with separate worker processes:
 - `scheduler`: polls reviewed schedule definitions and idempotently publishes
   due slots to Redis; it never selects identity from a queue payload.
 - `postgres`: durable state, audit events and optional pgvector.
-- `redis`: queue, locks, rate limits and ephemeral streaming state.
+- `redis`: queue, locks, rate limits and ephemeral streaming state. Schedule
+  cancellation markers are short-lived, idempotent and keyed by the reviewed
+  run idempotency key; they never replace a completed marker.
 - `object storage`: documents, artifacts and exported packages; attachment
   bytes use the S3-compatible adapter in production. Each object write
   requests server-side encryption and verifies the returned encryption

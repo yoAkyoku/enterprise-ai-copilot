@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from unittest.mock import patch
 
 from packages.agent_runtime import IdentityContext
-from packages.scheduler import RedisJobQueue, ScheduleDefinition
+from packages.scheduler import Job, RedisJobQueue, ScheduleDefinition, Scheduler
 from services.bootstrap import build_runtime
 from services.worker.executor import (
     AgentScheduleExecutor,
@@ -14,6 +14,7 @@ from services.worker.executor import (
     build_worker_identity,
     validate_agent_schedule,
 )
+from services.worker.main import _consume_job
 
 
 class WorkerExecutionTests(unittest.TestCase):
@@ -119,6 +120,56 @@ class WorkerExecutionTests(unittest.TestCase):
         self.assertEqual(queue.claim_run("worker-schedule:slot").status, "in_progress")
         queue.complete_run("worker-schedule:slot", first.token or "")
         self.assertEqual(queue.claim_run("worker-schedule:slot").status, "completed")
+
+    def test_redis_run_cancellation_is_durable_and_not_claimable(self) -> None:
+        class FakeRedis:
+            def __init__(self) -> None:
+                self.values: dict[str, str] = {}
+
+            def get(self, key: str) -> str | None:
+                return self.values.get(key)
+
+            def eval(self, _script: str, _key_count: int, key: str, _retention: int) -> int:
+                if self.values.get(key) in {"completed", "cancelled"}:
+                    return 0
+                self.values[key] = "cancelled"
+                return 1
+
+        queue = RedisJobQueue(FakeRedis(), stream="worker-cancel-test")
+        self.assertTrue(queue.cancel_run("worker-schedule:cancelled"))
+        self.assertFalse(queue.cancel_run("worker-schedule:cancelled"))
+        self.assertTrue(queue.is_run_cancelled("worker-schedule:cancelled"))
+        self.assertEqual(queue.claim_run("worker-schedule:cancelled").status, "cancelled")
+
+    def test_worker_does_not_execute_a_cancelled_redis_job(self) -> None:
+        class FakeRedis:
+            def get(self, _key: str) -> str:
+                return "cancelled"
+
+        from services.worker.executor import build_schedule_job_payload
+
+        definition = self.definition()
+        queue = RedisJobQueue(FakeRedis(), stream="worker-cancel-job-test")
+        scheduled_at = datetime(2030, 1, 1, 1, 0, tzinfo=UTC)
+        job = Job(
+            id="cancelled-job",
+            payload=build_schedule_job_payload(definition, scheduled_at),
+            enqueued_at="2030-01-01T01:00:00+00:00",
+        )
+        scheduler = Scheduler(cancel_checker=queue.is_run_cancelled)
+        scheduler.register(definition)
+        called = False
+
+        def execute(_definition: ScheduleDefinition, _key: str) -> str:
+            nonlocal called
+            called = True
+            return "must not execute"
+
+        self.assertEqual(
+            _consume_job(queue, definition, scheduler, job, execute, "development"),
+            0,
+        )
+        self.assertFalse(called)
 
     def test_schedule_enqueue_claim_deduplicates_producer_restarts(self) -> None:
         class FakeRedis:

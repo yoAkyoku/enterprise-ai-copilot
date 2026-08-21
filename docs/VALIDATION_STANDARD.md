@@ -180,6 +180,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | SCH-008 | scheduled permissions | unattended task cannot silently gain write access |
 | SCH-009 | run isolation | scheduled run cannot pollute another run's context |
 | SCH-010 | distributed queue | enqueue, claim, ack and abandoned-job reclaim preserve job identity |
+| SCH-011 | distributed cancellation | durable cancellation marker prevents a queued/retrying run from claiming or starting the next tool call |
 
 ### 6.8 Memory and RAG
 
