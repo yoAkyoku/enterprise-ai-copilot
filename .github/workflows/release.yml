@@ -26,8 +26,8 @@ jobs:
       - name: Validate release
         run: |
           python -m compileall -q packages services tests scripts apps
-          ruff check packages services tests scripts
-          ruff format --check packages services tests scripts
+          python -m ruff check packages services tests scripts
+          python -m ruff format --check packages services tests scripts
           python -m unittest discover -s tests -v
           python -m services.cli validate
           python scripts/check_secrets.py --git-history

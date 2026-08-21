@@ -75,7 +75,7 @@ Validation MUST document：
 - seed dataset version
 - commit SHA
 
-Default CI MUST use fake providers and deterministic fixtures. Live provider tests MUST be opt-in and MUST never run with production credentials。
+Default CI MUST use fake providers and deterministic fixtures. Live provider tests MUST be opt-in and MUST never run with production credentials。The repository MUST pin formatter/linter versions so a local PASS and hosted PASS use the same toolchain.
 
 ## 6. Required validation matrix
 

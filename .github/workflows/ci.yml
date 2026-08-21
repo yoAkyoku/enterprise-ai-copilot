@@ -45,9 +45,9 @@ jobs:
       - name: Compile
         run: python -m compileall -q packages services tests scripts apps
       - name: Lint
-        run: ruff check packages services tests scripts
+        run: python -m ruff check packages services tests scripts
       - name: Format check
-        run: ruff format --check packages services tests scripts
+        run: python -m ruff format --check packages services tests scripts
       - name: Unit and contract tests
         run: python -m unittest discover -s tests -v
       - name: Manifest and repository validation

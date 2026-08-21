@@ -25,7 +25,7 @@ enterprise-agent = "services.api.main:main"
 enterprise-agent-cli = "services.cli:main"
 
 [project.optional-dependencies]
-dev = ["httpx2>=2,<3", "ruff>=0.8,<1"]
+dev = ["httpx2>=2,<3", "ruff==0.15.12"]
 security = ["cryptography>=48.0.1,<51", "pip-audit>=2.10,<3"]
 production = ["boto3>=1.35,<2", "cryptography>=48.0.1,<51", "redis>=5,<6"]
 
