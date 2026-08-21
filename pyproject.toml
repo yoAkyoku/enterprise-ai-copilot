@@ -31,7 +31,7 @@ production = [
     "boto3>=1.35,<2",
     "cryptography>=48.0.1,<51",
     "psycopg[binary]>=3.2,<4",
-    "redis>=5,<6",
+    "redis>=5,<9",
 ]
 
 [tool.setuptools.packages.find]
