@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Mapping
+from importlib.resources import files
 from pathlib import Path
 
 import yaml
@@ -106,9 +107,7 @@ def build_erp_tool_definitions() -> dict[str, ToolDefinition]:
 def build_agent_tool_allowlist() -> frozenset[str]:
     """Load the Agent manifest allowlist without treating its prose as policy."""
 
-    manifest_path = (
-        Path(__file__).resolve().parents[1] / "agents" / "customer-service" / "agent.yaml"
-    )
+    manifest_path = files("agents").joinpath("customer-service", "agent.yaml")
     try:
         raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, yaml.YAMLError) as exc:

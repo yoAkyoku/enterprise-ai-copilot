@@ -35,10 +35,11 @@ production = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["apps*", "packages*", "services*"]
+include = ["agents*", "apps*", "packages*", "services*"]
 
 [tool.setuptools.package-data]
 "apps.web" = ["index.html", "assets/*.css", "assets/*.js", "assets/*.svg"]
+"agents" = ["customer-service/*.yaml", "customer-service/*.md"]
 
 [tool.ruff]
 line-length = 100
