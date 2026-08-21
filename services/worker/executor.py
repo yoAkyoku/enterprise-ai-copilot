@@ -6,6 +6,7 @@ import hashlib
 import os
 import re
 from collections.abc import Mapping
+from collections.abc import Callable
 from datetime import datetime
 
 from packages.agent_runtime import AgentRuntime, IdentityContext, RunStatus
@@ -53,6 +54,10 @@ def validate_agent_schedule(schedule: ScheduleDefinition) -> None:
 
     if schedule.agent != AgentRuntime.agent_id:
         raise WorkerConfigurationError("scheduled Agent is not registered in this worker image")
+    if schedule.permissions_mode != "read_only":
+        raise WorkerConfigurationError(
+            "scheduled high-risk actions require a dedicated approval-bound action executor"
+        )
     if not isinstance(schedule.query, str) or not schedule.query.strip():
         raise WorkerConfigurationError("scheduled Agent requires run.query")
     if not isinstance(schedule.order_id, str) or not schedule.order_id.strip():
@@ -114,9 +119,15 @@ def validate_schedule_job_payload(
 class AgentScheduleExecutor:
     """Adapt one typed Agent Runtime to the scheduler executor contract."""
 
-    def __init__(self, runtime: AgentRuntime, identity: IdentityContext) -> None:
+    def __init__(
+        self,
+        runtime: AgentRuntime,
+        identity: IdentityContext,
+        cancel_checker: Callable[[], bool] | None = None,
+    ) -> None:
         self._runtime = runtime
         self._identity = identity
+        self._cancel_checker = cancel_checker
 
     def execute(self, schedule: ScheduleDefinition, idempotency_key: str) -> str:
         validate_agent_schedule(schedule)
@@ -128,6 +139,7 @@ class AgentScheduleExecutor:
             request_id=f"schedule-request-{digest[:32]}",
             trace_id=f"schedule-trace-{digest[:32]}",
             allow_external_model_processing=schedule.allow_external_processing,
+            cancel_checker=self._cancel_checker,
         )
         if result.status is not RunStatus.SUCCEEDED:
             raise WorkerExecutionError("scheduled Agent did not produce verified success")

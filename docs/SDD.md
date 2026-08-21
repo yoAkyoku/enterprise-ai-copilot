@@ -7,7 +7,8 @@
 - Repository intent: open-source, self-hostable enterprise Agent platform
 - Current implementation status: production-track package with a verified local
   runtime, Web console, durable run/audit/approval adapters, image evidence
-  flow, OIDC/JWKS boundary, S3-compatible blob boundary and metrics endpoint;
+  flow, OIDC/JWKS boundary, S3-compatible blob boundary that verifies
+  server-side encryption metadata and metrics endpoint;
   external production gates remain explicit in the release checklist
 - Normative terms: `MUST` is required, `SHOULD` is recommended, and `MAY` is optional
 
@@ -129,9 +130,14 @@ v1 SHOULD be a modular monolith with separate worker processes:
 - `scheduler`: polls reviewed schedule definitions and idempotently publishes
   due slots to Redis; it never selects identity from a queue payload.
 - `postgres`: durable state, audit events and optional pgvector.
-- `redis`: queue, locks, rate limits and ephemeral streaming state.
+- `redis`: queue, locks, rate limits and ephemeral streaming state. Schedule
+  cancellation markers are short-lived, idempotent and keyed by the reviewed
+  run idempotency key; they never replace a completed marker.
 - `object storage`: documents, artifacts and exported packages; attachment
-  bytes use the S3-compatible adapter in production.
+  bytes use the S3-compatible adapter in production. Each object write
+  requests server-side encryption and verifies the returned encryption
+  metadata before the write is treated as successful; an unverifiable object
+  is best-effort deleted and the operation fails closed.
 
 當任務需要跨數小時或數天的 durable workflow 時，才引入 Temporal 或相等的 workflow engine；在此之前使用 PostgreSQL state machine + worker 即可。
 
@@ -296,6 +302,10 @@ Skill 的可見性不等於執行授權；最終授權一定由 Policy Engine �
 ```
 
 Plugin registry MUST record publisher, version, integrity hash, requested permissions, dependency versions and review status. Install、update、rollback MUST be auditable。
+Production Plugin installation MUST additionally verify an Ed25519 signature against
+deployment-provided trusted publisher keys. An unsigned package may be used only by
+the local review-gated development registry; signature verification MUST happen
+before copy, activation or rollback.
 
 ### 5.6 Schedule contract
 
@@ -326,6 +336,10 @@ notify:
 ```
 
 Schedule MUST support idempotency, timezone, retry/backoff, timeout, concurrency, pause/resume, expiration, notification and run history。
+The current Agent worker executes only `read_only` schedules. A declared
+`approved_write` schedule MUST be rejected unless it is routed through a
+separate executor carrying a user-bound, argument-bound approval grant; a queue
+payload alone is never an approval.
 
 ## 6. Agent Runtime
 
@@ -400,6 +414,11 @@ Subagent 的結果 MUST 經過 schema validation 與 evidence verification，不
 
 MCP Gateway MUST implement server registry、tool allowlist、tool schema validation、timeout、retry policy、health check、credential isolation、rate limit、audit and provenance。
 
+The Agent Runtime exposes one generic registered-tool execution path for the
+API and future planners. It applies the Agent manifest allowlist, the typed
+argument schema, risk policy, durable one-time approval, cancellation,
+idempotency key and result provenance checks before MCP is called.
+
 Successful tool results MUST echo the trusted workspace and tenant scope injected
 by the runtime, carry the requested record identity and provenance, and be
 rejected before a run is marked successful when any of those values disagree.
@@ -463,6 +482,11 @@ Approval MUST snapshot：
 - external confirmation
 
 核准後的實際參數若與 snapshot 不一致，必須重新審批。
+
+Approval token 本身不是授權證據。Policy 只能透過注入且與 durable
+`ApprovalService` 綁定的 verifier，依 workspace、tenant、approval id、tool
+name 與 normalized arguments 驗證後才可放行；缺少 verifier 或任一欄位不符時
+必須維持 `approval_required`。
 
 ### 8.3 Sandbox
 
@@ -555,6 +579,7 @@ GET    /api/v1/approvals
 POST   /api/v1/approvals
 POST   /api/v1/approvals/{id}/approve
 POST   /api/v1/approvals/{id}/reject
+POST   /api/v1/tools/{tool_name}/execute
 
 GET    /api/v1/audit/events
 
@@ -563,6 +588,16 @@ GET    /ready
 ```
 
 API MUST return explicit states for `blocked`, `approval_required`, `partial_success` and `external_confirmation_pending`；不能以 HTTP 200 + generic success 表示未完成的外部操作。
+
+`/api/v1/tools/{tool_name}/execute` MUST never accept tenant, workspace or user
+identity from its JSON arguments. The Agent manifest and typed MCP definition
+are authoritative; high-risk actions require the durable approval verifier and
+the one-time token is consumed before the external call. High-risk requests also
+require a caller-provided idempotency key, which is recorded with the terminal
+outcome. A blocked or cancelled
+attempt MUST NOT reserve the client idempotency key, so a valid approved retry
+can still proceed; a completed or failed external attempt is recorded against
+the key to prevent an unreviewed duplicate.
 
 ## 12. Observability
 

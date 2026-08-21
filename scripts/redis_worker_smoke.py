@@ -3,7 +3,8 @@
 This smoke intentionally uses a unique stream and consumer group so it can run
 in an isolated CI service without deleting another tenant's data. It proves
 queue identity, acknowledgement, reconnect-safe consumption and abandoned-job
-reclaim; it does not claim a full production worker deployment.
+  reclaim and cooperative cancellation marker behavior; it does not claim a
+  full production worker deployment.
 """
 
 from __future__ import annotations
@@ -77,11 +78,27 @@ def main() -> int:
         _require(reclaimed.payload.get("trace_id") == trace_id, "reclaimed trace identity changed")
         worker_b.ack(reclaimed)
 
+        cancelled_key = f"cancelled:{uuid4().hex}"
+        cancelled_job = producer.enqueue({"kind": "cancelled", "trace_id": trace_id})
+        _require(
+            producer.cancel_run(cancelled_key),
+            "worker cancellation marker was not created",
+        )
+        cancellation_claim = worker_a.claim_run(cancelled_key)
+        _require(
+            cancellation_claim.status == "cancelled",
+            "cancelled worker run became claimable",
+        )
+        cancelled_delivery = worker_a.receive(block_seconds=2)
+        _require(cancelled_delivery is not None, "worker did not receive cancellation fixture")
+        worker_a.ack(cancelled_delivery)
+
         pending = client.xpending(stream, group)
         _require(isinstance(pending, dict) and pending.get("pending") == 0, "jobs remain pending")
         print(
             "redis-worker-smoke: PASS "
-            f"stream={stream} acknowledged={acknowledged.id} reclaimed={reclaimed.id}"
+            f"stream={stream} acknowledged={acknowledged.id} reclaimed={reclaimed.id} "
+            f"cancelled={cancelled_job.id}"
         )
         return 0
     finally:

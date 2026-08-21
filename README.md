@@ -53,6 +53,20 @@ are not silently claimed as executed in the synthetic release.
 The text-model boundary uses the same OpenAI-compatible contract. It receives
 only a user query plus server-verified evidence, requires explicit
 `allow_external_processing` consent, and labels returned prose as unverified.
+High-risk tool authorization is also fail-closed: an approval token is not
+accepted as proof by itself. A configured runtime must bind policy to the
+durable, workspace/tenant- and argument-scoped approval verifier before a
+write-class tool can run.
+Registered tools can also be invoked through
+`POST /api/v1/tools/{tool_name}/execute` with typed arguments and an optional
+one-time approval id/token for read operations; write-class operations require
+an argument-bound approval and explicit idempotency key. The runtime validates the Agent manifest allowlist,
+tool risk, argument schema, tenant/workspace provenance and connector
+idempotency before returning a success. The example ERP boundary includes a
+review-gated `erp.create_return` action; the default data is still synthetic.
+Production Plugin registries can require Ed25519 signatures against
+deployment-provided trusted publisher keys; the local demo registry remains
+review-gated and never executes Plugin code.
 The production Compose profile starts the API, a PostgreSQL migration job, a
 Redis-backed schedule producer, a continuous worker, Redis and PostgreSQL;
 replace the example environment with secret-managed values before use.
@@ -74,7 +88,15 @@ without Redis intentionally uses an in-process limiter.
 Scheduled production workers run `services.worker.main` in `agent` mode with a
 deployment-controlled service identity. Queue payloads cannot choose tenant or
 user scope; the worker revalidates the reviewed schedule before invoking the
-same Agent Runtime and MCP policy boundary.
+same Agent Runtime and MCP policy boundary. Operators can place a short-lived,
+idempotent Redis cancellation marker with
+`python -m scripts.cancel_schedule_run --confirm-cancel`; the worker then
+stops queued/retrying work and checks cancellation before the next ERP or model
+operation. Cancellation is cooperative and cannot undo an external call that
+was already in flight.
+The current scheduled Agent executor is read-only; `approved_write` schedules
+fail closed until a dedicated approval-bound schedule action executor is
+implemented and reviewed.
 
 Production also requires `AGENT_TRACE_ENDPOINT` and an exact
 `AGENT_TRACE_ALLOWED_HOSTS` entry. Trace attributes are bounded and reject

@@ -3,6 +3,7 @@
 
   let apiToken = "";
   let dashboard = null;
+  let returnAction = { approvalId: "", arguments: null, executionKey: "" };
   const $ = (selector) => document.querySelector(selector);
   const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 
@@ -18,7 +19,10 @@
     const response = await fetch(path, { ...options, headers });
     if (!response.ok) {
       let detail = `${response.status} ${response.statusText}`;
-      try { detail = (await response.json()).detail || detail; } catch (_) { /* response was not JSON */ }
+      try {
+        const body = await response.json();
+        detail = body.detail || body.message || detail;
+      } catch (_) { /* response was not JSON */ }
       throw new Error(detail);
     }
     return response.status === 204 ? null : response.json();
@@ -104,9 +108,15 @@
       const result = $(`[data-approval-result="${button.dataset.approveId}"]`);
       try {
         const approved = await request(`/api/v1/approvals/${encodeURIComponent(button.dataset.approveId)}/approve`, { method: "POST" });
-        result.textContent = `Approved. One-time token: ${approved.approval_token}`;
+        const item = items.find((candidate) => candidate.id === button.dataset.approveId);
+        if (item?.tool_name === "erp.create_return") {
+          prepareReturnExecution(button.dataset.approveId, approved.approval_token, item.arguments);
+        }
+        result.textContent = "Approved. The one-time token is ready in the controlled execution panel.";
+        button.disabled = true;
+        button.nextElementSibling.disabled = true;
         toast("Approval recorded; token issued once");
-        await loadDashboard();
+        await loadDashboard({ refreshApprovals: false });
       } catch (error) { result.textContent = error.message; toast(error.message, true); }
     }));
     $$('[data-reject-id]').forEach((button) => button.addEventListener("click", async () => {
@@ -143,8 +153,21 @@
     catch (_) { $("#approval-list").innerHTML = `<div class="empty-state">Approval service is unavailable for this deployment.</div>`; }
   }
 
-  async function loadDashboard() {
-    try { renderDashboard(await request("/api/v1/dashboard")); await loadApprovals(); }
+  function prepareReturnExecution(approvalId, token = "", argumentsValue = null) {
+    const sameApproval = returnAction.approvalId === approvalId;
+    returnAction = {
+      approvalId,
+      arguments: argumentsValue,
+      executionKey: sameApproval ? returnAction.executionKey : `web-return-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    };
+    $("#return-approval-id").value = approvalId;
+    $("#return-approval-token").value = token;
+    $("#return-execution-status").textContent = token ? "Approved; ready to execute once." : "Waiting for approval.";
+    $("#execute-return-button").disabled = false;
+  }
+
+  async function loadDashboard({ refreshApprovals = true } = {}) {
+    try { renderDashboard(await request("/api/v1/dashboard")); if (refreshApprovals) await loadApprovals(); }
     catch (error) {
       $("#connection-label").textContent = "AUTH REQUIRED";
       $("#token-banner").style.display = "flex";
@@ -157,6 +180,56 @@
     form.append("image", file);
     try { await request("/api/v1/attachments", { method: "POST", body: form }); toast("Image validated and stored in this tenant"); await loadDashboard(); }
     catch (error) { toast(error.message, true); }
+  }
+
+  function wireReturnActions() {
+    $("#return-request-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const argumentsValue = {
+        order_id: $("#return-order-input").value.trim(),
+        reason: $("#return-reason-input").value.trim(),
+      };
+      $("#return-request-status").textContent = "Creating a scoped approval request…";
+      try {
+        const approval = await request("/api/v1/approvals", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tool_name: "erp.create_return", arguments: argumentsValue, idempotency_key: `web-request-${Date.now()}` }),
+        });
+        prepareReturnExecution(approval.id, "", argumentsValue);
+        $("#return-request-status").textContent = `Approval ${approval.id} is waiting for an authorized reviewer.`;
+        $("#return-action-result").textContent = "Request recorded in the audit trail.";
+        toast("Return approval requested");
+        await loadDashboard();
+      } catch (error) {
+        $("#return-request-status").textContent = error.message;
+        toast(error.message, true);
+      }
+    });
+    $("#execute-return-button").addEventListener("click", async () => {
+      const token = $("#return-approval-token").value.trim();
+      if (!returnAction.approvalId || !returnAction.arguments || !token) {
+        $("#return-execution-status").textContent = "An approval ID, arguments and one-time token are required.";
+        return;
+      }
+      $("#return-execution-status").textContent = "Calling the approved ERP boundary…";
+      try {
+        const response = await request("/api/v1/tools/erp.create_return/execute", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Idempotency-Key": returnAction.executionKey },
+          body: JSON.stringify({ arguments: returnAction.arguments, approval_id: returnAction.approvalId, approval_token: token }),
+        });
+        $("#return-execution-status").textContent = "Completed once; the approval token cannot be replayed.";
+        $("#return-action-result").textContent = JSON.stringify(response.data || response);
+        $("#execute-return-button").disabled = true;
+        $("#return-approval-token").value = "";
+        toast("Approved return completed");
+        await loadDashboard();
+      } catch (error) {
+        $("#return-execution-status").textContent = error.message;
+        toast(error.message, true);
+      }
+    });
   }
 
   function wireNavigation() {
@@ -201,5 +274,5 @@
 
   $("#connect-button").addEventListener("click", async () => { apiToken = $("#token-input").value.trim(); if (!apiToken) return toast("Enter an API token first", true); await loadDashboard(); });
   $("#refresh-button").addEventListener("click", async () => { await loadDashboard(); toast("Runtime signal refreshed"); });
-  wireNavigation(); wireAttachments(); wireRunForm(); loadDashboard();
+  wireNavigation(); wireAttachments(); wireRunForm(); wireReturnActions(); loadDashboard();
 })();

@@ -155,6 +155,19 @@ class VerticalSliceTests(unittest.TestCase):
         self.assertEqual(result.status, RunStatus.BLOCKED)
         self.assertFalse(any(event.event_type == "tool.completed" for event in audit.events))
 
+    def test_runtime_cancellation_checker_blocks_tool_call(self) -> None:
+        runtime, audit = make_runtime()
+        result = runtime.run(
+            "Where is my order?",
+            IdentityContext("user-a", "workspace-a", "tenant-a", "customer"),
+            order_id="SO-1001",
+            cancel_checker=lambda: True,
+        )
+
+        self.assertEqual(result.status, RunStatus.CANCELLED)
+        self.assertIn("cancelled", result.message)
+        self.assertFalse(any(event.event_type == "tool.completed" for event in audit.events))
+
     def test_repository_contract_files_exist(self) -> None:
         required = (
             "AGENTS.md",
@@ -181,6 +194,9 @@ class VerticalSliceTests(unittest.TestCase):
             "scripts/check_release_version.py",
             "scripts/migrate_postgres.py",
             "scripts/backup_postgres.py",
+            "scripts/postgres_backup_restore_smoke.py",
+            "scripts/redis_worker_smoke.py",
+            "scripts/cancel_schedule_run.py",
         )
         for relative_path in required:
             with self.subTest(relative_path=relative_path):

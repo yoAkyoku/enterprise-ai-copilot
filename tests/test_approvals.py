@@ -85,6 +85,24 @@ class ApprovalServiceTests(unittest.TestCase):
                 arguments={"order_id": "SO-1001", "reason": "tampered"},
             )
         )
+        self.assertTrue(
+            service.verify_and_consume(
+                requester,
+                record.id,
+                token,
+                tool_name="erp.create_return",
+                arguments={"order_id": "SO-1001", "reason": "damaged"},
+            )
+        )
+        self.assertFalse(
+            service.verify_and_consume(
+                requester,
+                record.id,
+                token,
+                tool_name="erp.create_return",
+                arguments={"order_id": "SO-1001", "reason": "damaged"},
+            )
+        )
 
     def test_sqlite_approval_persists_without_raw_token(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -121,8 +139,85 @@ class ApprovalServiceTests(unittest.TestCase):
                         arguments={"order_id": "SO-1001", "amount": 10},
                     )
                 )
+                self.assertTrue(
+                    reopened.verify_and_consume(
+                        requester,
+                        record.id,
+                        token,
+                        tool_name="erp.refund",
+                        arguments={"order_id": "SO-1001", "amount": 10},
+                    )
+                )
+                self.assertFalse(
+                    reopened.verify_and_consume(
+                        requester,
+                        record.id,
+                        token,
+                        tool_name="erp.refund",
+                        arguments={"order_id": "SO-1001", "amount": 10},
+                    )
+                )
             finally:
                 reopened.close()
+
+    def test_policy_never_treats_an_unverified_token_as_approval(self) -> None:
+        service = ApprovalService()
+        requester = IdentityContext("user-a", "workspace-a", "tenant-a", "customer")
+        approver = IdentityContext("manager-a", "workspace-a", "tenant-a", "manager")
+        record = service.request(
+            requester,
+            tool_name="erp.create_return",
+            arguments={"order_id": "SO-1001"},
+            risk=ToolRisk.WRITE,
+        )
+        _, token = service.approve(approver, record.id)
+        policy = PolicyEngine(
+            {
+                "erp.create_return": ToolDefinition(
+                    name="erp.create_return", risk=ToolRisk.WRITE, description="test"
+                )
+            },
+            role_allowlist={"customer": {"erp.create_return"}},
+            approval_verifier=lambda identity, approval_id, candidate, tool_name, arguments: (
+                service.verify_and_consume(
+                    identity,
+                    approval_id,
+                    candidate,
+                    tool_name=tool_name,
+                    arguments=arguments,
+                )
+            ),
+        )
+        unverified = policy.authorize(
+            requester,
+            "erp.create_return",
+            approval_token=token,
+        )
+        self.assertEqual(unverified.outcome, "approval_required")
+        verified = policy.authorize(
+            requester,
+            "erp.create_return",
+            approval_id=record.id,
+            approval_token=token,
+            arguments={"order_id": "SO-1001"},
+        )
+        self.assertEqual(verified.outcome, "allow")
+        replayed = policy.authorize(
+            requester,
+            "erp.create_return",
+            approval_id=record.id,
+            approval_token=token,
+            arguments={"order_id": "SO-1001"},
+        )
+        self.assertEqual(replayed.outcome, "approval_required")
+        tampered = policy.authorize(
+            requester,
+            "erp.create_return",
+            approval_id=record.id,
+            approval_token=token,
+            arguments={"order_id": "SO-9999"},
+        )
+        self.assertEqual(tampered.outcome, "approval_required")
 
     def test_http_approval_queue_requires_authorized_approver(self) -> None:
         audit = AuditLog()
@@ -151,7 +246,11 @@ class ApprovalServiceTests(unittest.TestCase):
         created = client.post(
             "/api/v1/approvals",
             headers={**requester, "X-Request-Id": "approval-http-1"},
-            json={"tool_name": "erp.create_return", "arguments": {"order_id": "SO-1001"}},
+            json={
+                "tool_name": "erp.create_return",
+                "arguments": {"order_id": "SO-1001"},
+                "idempotency_key": "approval-http-1-return",
+            },
         )
         self.assertEqual(created.status_code, 201, created.text)
         approval_id = created.json()["id"]

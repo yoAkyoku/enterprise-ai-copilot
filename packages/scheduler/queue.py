@@ -28,7 +28,7 @@ class Job:
 class RunClaim:
     """A distributed execution claim for one schedule idempotency key."""
 
-    status: Literal["claimed", "in_progress", "completed"]
+    status: Literal["claimed", "in_progress", "completed", "cancelled"]
     token: str | None = None
 
 
@@ -209,9 +209,44 @@ class RedisJobQueue:
             normalized = current.decode() if isinstance(current, bytes) else str(current)
             if normalized == "completed":
                 return RunClaim("completed")
+            if normalized == "cancelled":
+                return RunClaim("cancelled")
             return RunClaim("in_progress")
         except Exception as exc:
             raise QueueError("Redis run claim failed") from exc
+
+    def cancel_run(self, idempotency_key: str, *, retention_seconds: int = 86400) -> bool:
+        """Persist a cooperative cancellation signal without reviving a terminal run."""
+
+        if not idempotency_key or len(idempotency_key) > 256:
+            raise ValueError("run idempotency key is invalid")
+        if retention_seconds <= 0 or retention_seconds > 7 * 86400:
+            raise ValueError("run cancellation retention is invalid")
+        state_key = self._run_state_key(idempotency_key)
+        script = (
+            "local current = redis.call('get', KEYS[1]); "
+            "if current == 'completed' or current == 'cancelled' then return 0 end; "
+            "redis.call('set', KEYS[1], 'cancelled', 'EX', ARGV[1]); return 1"
+        )
+        try:
+            result = self.client.eval(  # type: ignore[attr-defined]
+                script, 1, state_key, retention_seconds
+            )
+        except Exception as exc:
+            raise QueueError("Redis run cancellation failed") from exc
+        return result == 1
+
+    def is_run_cancelled(self, idempotency_key: str) -> bool:
+        """Read the durable cooperative cancellation signal for one run."""
+
+        if not idempotency_key or len(idempotency_key) > 256:
+            raise ValueError("run idempotency key is invalid")
+        try:
+            current = self.client.get(self._run_state_key(idempotency_key))  # type: ignore[attr-defined]
+        except Exception as exc:
+            raise QueueError("Redis run cancellation lookup failed") from exc
+        normalized = current.decode() if isinstance(current, bytes) else str(current)
+        return normalized == "cancelled"
 
     def complete_run(
         self,

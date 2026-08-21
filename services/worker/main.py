@@ -52,6 +52,12 @@ def _consume_job(
             run_key,
             lease_seconds=max(60, min(definition.max_runtime_seconds + 30, 86400)),
         )
+        if claim.status == "cancelled":
+            scheduler.cancel(run_key)
+            run = scheduler.trigger(definition.id, queued_at, execute)
+            queue.ack(job)
+            print(f"schedule={definition.id} status={run.status} claim=cancelled")
+            return 0
         if claim.status != "claimed":
             queue.ack(job)
             print(f"schedule={definition.id} status=deduplicated claim={claim.status}")
@@ -59,6 +65,10 @@ def _consume_job(
         if claim.token is None:
             raise RuntimeError("Redis returned a claimed run without a token")
         run = scheduler.trigger(definition.id, queued_at, execute)
+        if run.status.value == "cancelled":
+            queue.ack(job)
+            print(f"schedule={definition.id} status={run.status} claim=cancelled")
+            return 0
         queue.complete_run(run.idempotency_key, claim.token)
     queue.ack(job)
     message = (
@@ -102,8 +112,6 @@ def main() -> int:
     if platform_env in {"staging", "production"} and execution_mode != "agent":
         parser.error("staging and production require --execution-mode agent")
     definition = load_schedule(args.schedule)
-    scheduler = Scheduler()
-    scheduler.register(definition)
     now = datetime.fromisoformat(args.at) if args.at else datetime.now(UTC)
     if now.tzinfo is None:
         now = now.replace(tzinfo=UTC)
@@ -127,6 +135,8 @@ def main() -> int:
                 redis_client,
                 consumer=args.worker_id,
             )
+            scheduler = Scheduler(cancel_checker=queue.is_run_cancelled)
+            scheduler.register(definition)
             if args.queue_mode == "enqueue":
                 if execution_mode == "agent":
                     validate_agent_schedule(definition)
@@ -135,7 +145,11 @@ def main() -> int:
                 return 0
             if execution_mode == "agent":
                 runtime, _audit = build_runtime(trace_exporter=build_trace_exporter(platform_env))
-                executor = AgentScheduleExecutor(runtime, build_worker_identity(platform_env))
+                executor = AgentScheduleExecutor(
+                    runtime,
+                    build_worker_identity(platform_env),
+                    cancel_checker=queue.is_run_cancelled,
+                )
                 execute = executor.execute
             else:
                 execute = _distributed_dry_run
@@ -163,6 +177,8 @@ def main() -> int:
         finally:
             if redis_client is not None:
                 redis_client.close()
+    scheduler = Scheduler()
+    scheduler.register(definition)
     if execution_mode == "agent":
         runtime, _audit = build_runtime(trace_exporter=build_trace_exporter(platform_env))
         executor = AgentScheduleExecutor(runtime, build_worker_identity(platform_env))

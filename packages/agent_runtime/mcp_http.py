@@ -8,6 +8,7 @@ import urllib.parse
 import urllib.request
 from collections.abc import Mapping, Sequence
 
+from .mcp import validate_tool_arguments
 from .models import ToolCallRequest, ToolDefinition, ToolResult
 from .network import NoRedirectHandler, validated_https_endpoint
 
@@ -68,6 +69,16 @@ class StreamableHttpMcpGateway:
         definition = self.definitions.get(request.tool_name)
         if definition is None:
             return ToolResult(success=False, error="tool is not registered")
+        argument_error = validate_tool_arguments(definition, request.arguments)
+        if argument_error:
+            return ToolResult(success=False, error=argument_error)
+        if (
+            not isinstance(request.idempotency_key, str)
+            or not request.idempotency_key.strip()
+            or len(request.idempotency_key) > 200
+            or any(character in request.idempotency_key for character in "\r\n")
+        ):
+            return ToolResult(success=False, error="tool idempotency key is invalid")
         payload = {
             "jsonrpc": "2.0",
             "id": request.request_id,
@@ -80,6 +91,7 @@ class StreamableHttpMcpGateway:
         headers["X-Request-Id"] = request.request_id
         headers["X-Trace-Id"] = request.trace_id
         headers["X-Run-Id"] = request.run_id
+        headers["Idempotency-Key"] = request.idempotency_key
         headers["X-Workspace-Id"] = request.identity.workspace_id
         headers["X-Tenant-Id"] = request.identity.tenant_id
         headers["X-User-Id"] = request.identity.user_id

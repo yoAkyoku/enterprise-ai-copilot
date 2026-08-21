@@ -21,6 +21,22 @@ All notable changes are documented here.
 - Added PostgreSQL shared-state adapters, checked-in PostgreSQL migrations,
   Compose migration gating and a password-safe custom-format backup helper;
   target backup/restore and failover evidence remain release gates.
+- Added durable Redis cooperative cancellation for scheduled runs, including
+  idempotent operator cancellation and cancellation checks before the next ERP
+  or model operation.
+- Hardened high-risk policy authorization so an arbitrary approval token cannot
+  grant access; only a durable, scope- and argument-bound approval verifier may
+  authorize a write-class tool.
+- Added a typed, approval-bound generic tool execution API with explicit
+  high-risk idempotency keys, tenant/user-scoped one-time approvals, remote MCP
+  idempotency headers and verified connector provenance.
+- Added Vision/OCR correlation context and attachment SHA-256 evidence, plus a
+  controlled return-request panel in the Web console.
+- Added optional Ed25519 Plugin publisher signatures with production
+  fail-closed verification, and rejected unattended high-risk schedules in the
+  current read-only Agent worker.
+- Made SQLite idempotent run persistence return the existing scoped record on a
+  unique-key race, matching the shared PostgreSQL adapter's retry behavior.
 - Added tenant-scoped audit reads, pinned PostgreSQL CI services, hosted
   PostgreSQL integration/backup recovery smoke and backup-wrapper tests.
 - Improved the Web console's dynamic runtime counts, date/status copy and

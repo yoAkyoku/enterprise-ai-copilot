@@ -28,6 +28,13 @@ Before starting the API, provision and test:
   documented single-node SQLite mode;
 - TLS termination, ingress authentication/rate limits and centralized logs.
 
+If Plugins are enabled in a production deployment, configure the registry with
+trusted publisher Ed25519 public keys and require signatures. The key map is a
+deployment configuration reference, not a repository file; rotate keys by
+publishing a new trusted key before packages signed by the old key are retired.
+The local CLI registry defaults to review plus integrity checks for development,
+but that mode is not a production supply-chain control.
+
 Copy `deploy/production.env.example` into a secret-managed file, replace every
 `example.invalid` host and `REPLACE_*` value, and inject secret values through
 the deployment platform. Never commit the resulting file or credentials.
@@ -162,6 +169,12 @@ as a separate process with the same immutable image and
 production environment. Production and staging require real Agent execution;
 the dry-run mode is for local contract checks only:
 
+The current scheduled Agent executor is deliberately read-only. A schedule with
+`permissions.mode: approved_write` is rejected before queue execution because a
+scheduled job has no user-bound, argument-bound approval grant. Use the API's
+approval-bound tool execution path for high-risk actions, or implement and review
+a separate schedule action executor before enabling unattended writes.
+
 ```powershell
 python -m services.worker.main schedules/order-status-demo.yaml `
   --redis-url $env:AGENT_REDIS_URL --queue-mode consume --continuous `
@@ -175,7 +188,21 @@ version, task inputs and exact payload keys before execution, passes the
 trusted identity through the same policy/MCP boundary as the API, and exports
 the same privacy-safe OTLP tool spans. Keep the Redis consumer group and
 `claim_after_seconds` longer than the maximum expected task runtime; verify
-reclaim and cancellation behavior in the target deployment.
+reclaim and cancellation behavior in the target deployment. To issue an
+operator-approved cooperative cancellation marker for a known schedule slot,
+use the same immutable image and the deployment Redis secret:
+
+```powershell
+python -m scripts.cancel_schedule_run `
+  --redis-url $env:AGENT_REDIS_URL `
+  --idempotency-key "order-status-demo:2030-01-01T01:00:00+00:00" `
+  --confirm-cancel
+```
+
+The command is idempotent and cannot replace a `completed` marker. Cancellation
+is cooperative: it prevents a queued/retrying run and prevents the next ERP or
+model call after the worker observes the marker; it cannot undo an external
+call that was already in flight.
 
 Model output is an optional explanation layer. The API and schedule contract
 default to no external model processing. When consent is enabled, the runtime

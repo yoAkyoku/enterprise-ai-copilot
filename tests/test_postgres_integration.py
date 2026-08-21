@@ -156,6 +156,29 @@ class PostgresIntegrationTests(unittest.TestCase):
                 ),
                 "hash-only-token",
             )
+            self.assertTrue(
+                approvals.consume(
+                    approval.id,
+                    workspace_id=identity.workspace_id,
+                    tenant_id=identity.tenant_id,
+                    token_hash="hash-only-token",
+                )
+            )
+            self.assertFalse(
+                approvals.consume(
+                    approval.id,
+                    workspace_id=identity.workspace_id,
+                    tenant_id=identity.tenant_id,
+                    token_hash="hash-only-token",
+                )
+            )
+            self.assertIsNone(
+                approvals.token_hash(
+                    approval.id,
+                    workspace_id=identity.workspace_id,
+                    tenant_id=identity.tenant_id,
+                )
+            )
 
             attachment = AttachmentRecord(
                 id=f"attachment-{suffix}",

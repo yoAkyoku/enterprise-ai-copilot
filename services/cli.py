@@ -40,7 +40,17 @@ def doctor_command() -> int:
 
 
 def plugin_command(args: argparse.Namespace) -> int:
-    registry = PluginRegistry(args.registry)
+    trusted_keys: dict[str, str] = {}
+    for item in args.trusted_key or []:
+        if "=" not in item:
+            raise PluginInstallError("--trusted-key must use key-id=base64-public-key")
+        key_id, public_key = item.split("=", 1)
+        trusted_keys[key_id] = public_key
+    registry = PluginRegistry(
+        args.registry,
+        trusted_publisher_keys=trusted_keys,
+        require_signatures=bool(args.require_signature),
+    )
     try:
         if args.action == "list":
             print(json.dumps([record.__dict__ for record in registry.list_installed()], indent=2))
@@ -72,6 +82,13 @@ def main(argv: list[str] | None = None) -> int:
     plugin_parser.add_argument("--source")
     plugin_parser.add_argument("--approved-by")
     plugin_parser.add_argument("--expected-integrity")
+    plugin_parser.add_argument(
+        "--trusted-key",
+        action="append",
+        default=[],
+        help="trusted publisher key as key-id=base64-public-key",
+    )
+    plugin_parser.add_argument("--require-signature", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "validate":
         return validate_command()

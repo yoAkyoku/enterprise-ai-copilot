@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
+from importlib.resources import files
 from pathlib import Path
+
+import yaml
 
 from packages.agent_runtime import (
     AgentRuntime,
     AuditLog,
     IdentityContext,
     InMemoryMcpGateway,
+    ApprovalService,
     McpGateway,
     ModelProvider,
     OpenAICompatibleModelProvider,
@@ -87,14 +92,41 @@ def build_erp_tool_definitions() -> dict[str, ToolDefinition]:
             name="erp.get_order_status",
             risk=ToolRisk.READ,
             description="Return a tenant-scoped ERP order status with provenance.",
-        )
+            argument_schema=(("order_id", "string"),),
+        ),
+        "erp.create_return": ToolDefinition(
+            name="erp.create_return",
+            risk=ToolRisk.WRITE,
+            description="Create a reviewed return request for a tenant-scoped order.",
+            allowed_roles=frozenset({"manager", "admin"}),
+            argument_schema=(("order_id", "string"), ("reason", "string")),
+        ),
     }
+
+
+def build_agent_tool_allowlist() -> frozenset[str]:
+    """Load the Agent manifest allowlist without treating its prose as policy."""
+
+    manifest_path = files("agents").joinpath("customer-service", "agent.yaml")
+    try:
+        raw = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        raise RuntimeError("customer-service Agent manifest could not be loaded") from exc
+    allow = raw.get("mcp", {}).get("allow") if isinstance(raw, dict) else None
+    if (
+        not isinstance(allow, list)
+        or not allow
+        or any(not isinstance(tool, str) or not tool.strip() for tool in allow)
+    ):
+        raise RuntimeError("customer-service Agent manifest must declare a non-empty MCP allowlist")
+    return frozenset(tool.strip() for tool in allow)
 
 
 def build_runtime(
     audit: AuditLog | None = None,
     trace_exporter: TraceExporter | None = None,
     model_provider: ModelProvider | None = None,
+    approval_service: ApprovalService | None = None,
 ) -> tuple[AgentRuntime, AuditLog]:
     seed_path = Path(__file__).resolve().parents[1] / "data" / "demo" / "orders.json"
     if seed_path.is_file():
@@ -125,13 +157,40 @@ def build_runtime(
     configured_model = model_provider
     if configured_model is None:
         configured_model = build_model_provider()
+    approval_verifier = None
+    if approval_service is not None:
+
+        def verify_approval(
+            identity: IdentityContext,
+            approval_id: str,
+            token: str,
+            tool_name: str,
+            arguments: Mapping[str, object],
+        ) -> bool:
+            return approval_service.verify_and_consume(
+                identity,
+                approval_id,
+                token,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+
+        approval_verifier = verify_approval
+    allowed_tools = build_agent_tool_allowlist()
+    unknown_tools = allowed_tools - set(gateway.definitions)
+    if unknown_tools:
+        raise RuntimeError(
+            "customer-service Agent manifest references unregistered tools: "
+            + ", ".join(sorted(unknown_tools))
+        )
     return (
         AgentRuntime(
-            PolicyEngine(gateway.definitions),
+            PolicyEngine(gateway.definitions, approval_verifier=approval_verifier),
             gateway,
             audit_log,
             trace_exporter=trace_exporter,
             model_provider=configured_model,
+            allowed_tools=allowed_tools,
         ),
         audit_log,
     )

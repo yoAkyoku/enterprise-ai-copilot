@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from base64 import b64encode
 import re
 import shutil
 import sqlite3
@@ -31,7 +32,12 @@ from packages.agent_runtime import (
     ToolRisk,
 )
 from packages.agent_runtime.models import AuditEvent, ToolCallRequest
-from packages.contracts import validate_agent_manifest, validate_plugin, validate_repository
+from packages.contracts import (
+    plugin_signature_digest,
+    validate_agent_manifest,
+    validate_plugin,
+    validate_repository,
+)
 from packages.plugins import PluginInstallError, PluginRegistry
 from packages.scheduler import (
     InMemoryJobQueue,
@@ -150,6 +156,7 @@ class PlatformContractTests(unittest.TestCase):
         outgoing_headers = {key.lower(): value for key, value in outgoing.header_items()}
         self.assertEqual(outgoing_headers["x-tenant-id"], "tenant-a")
         self.assertEqual(outgoing_headers["x-workspace-id"], "workspace-a")
+        self.assertEqual(outgoing_headers["idempotency-key"], "run-1:order-status")
         payload = json.loads(outgoing.data)
         self.assertEqual(payload["params"]["arguments"], {"order_id": "SO-1001"})
         self.assertEqual(captured["timeout"], 10.0)
@@ -632,6 +639,30 @@ limits:
         self.assertEqual(cancelled.status, ScheduleStatus.CANCELLED)
         self.assertFalse(called)
 
+        remote_key = "remote-cancel-schedule:2030-01-01T01:00:00+00:00"
+        remote_scheduler = Scheduler(cancel_checker=lambda key: key == remote_key)
+        remote_definition = ScheduleDefinition(
+            id="remote-cancel-schedule",
+            version="0.1.0",
+            agent="customer-service-agent",
+            schedule_type="one_shot",
+            at="2030-01-01T09:00:00+08:00",
+            timezone_name="Asia/Taipei",
+        )
+        remote_scheduler.register(remote_definition)
+        remote_called = False
+
+        def remote_should_not_run(_definition, _key):  # type: ignore[no-untyped-def]
+            nonlocal remote_called
+            remote_called = True
+            return "unexpected"
+
+        remote_run = remote_scheduler.trigger(
+            remote_definition.id, trigger_time, remote_should_not_run
+        )
+        self.assertEqual(remote_run.status, ScheduleStatus.CANCELLED)
+        self.assertFalse(remote_called)
+
     def test_job_queue_preserves_payload_and_ack_boundary(self) -> None:
         queue = InMemoryJobQueue()
         job = queue.enqueue({"schedule_id": "schedule-1", "tenant_id": "tenant-a"})
@@ -718,6 +749,45 @@ limits:
                 [json.loads(event)["action"] for event in events],
                 ["install", "install", "rollback", "remove"],
             )
+
+    def test_production_plugin_registry_requires_and_verifies_publisher_signature(self) -> None:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "signed-plugin"
+            shutil.copytree(ROOT / "plugins" / "erp-demo", source)
+            strict_registry = PluginRegistry(
+                Path(directory) / "strict-registry", require_signatures=True
+            )
+            with self.assertRaisesRegex(PluginInstallError, "requires a signature"):
+                strict_registry.install(source, approved_by="test-maintainer")
+
+            private_key = Ed25519PrivateKey.generate()
+            public_key = private_key.public_key().public_bytes_raw()
+            manifest_path = source / ".codex-plugin" / "plugin.json"
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            manifest["signing"] = {
+                "key_id": "publisher-key-1",
+                "signature": "pending",
+            }
+            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+            signature = private_key.sign(plugin_signature_digest(source).encode("ascii"))
+            manifest["signing"]["signature"] = b64encode(signature).decode("ascii")
+            manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+            registry = PluginRegistry(
+                Path(directory) / "verified-registry",
+                trusted_publisher_keys={"publisher-key-1": b64encode(public_key).decode("ascii")},
+                require_signatures=True,
+            )
+            record = registry.install(source, approved_by="test-maintainer")
+            self.assertTrue(record.signature_verified)
+            self.assertEqual(record.signing_key_id, "publisher-key-1")
+            with self.assertRaises(PluginInstallError):
+                PluginRegistry(
+                    Path(directory) / "untrusted-registry",
+                    trusted_publisher_keys={},
+                    require_signatures=True,
+                ).install(source, approved_by="test-maintainer")
 
     def test_http_api_requires_identity_and_preserves_idempotency(self) -> None:
         runtime, audit = build_runtime()

@@ -1,4 +1,4 @@
-"""Typed contracts for the first Agent Runtime slice.
+"""Typed contracts for the Agent Runtime and tool execution boundary.
 
 The contracts intentionally use only the Python standard library so the first
 vertical slice can be tested from a clean checkout without external services.
@@ -44,6 +44,8 @@ class ToolDefinition:
     name: str
     risk: ToolRisk
     description: str
+    allowed_roles: frozenset[str] = frozenset()
+    argument_schema: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -75,6 +77,19 @@ class PolicyDecision:
     reason: str
     tool_name: str
     risk: ToolRisk | None = None
+
+
+@dataclass(frozen=True)
+class ToolExecution:
+    """The auditable result of one policy-gated MCP tool attempt."""
+
+    status: RunStatus
+    request_id: str
+    trace_id: str
+    run_id: str
+    tool_name: str
+    decision: PolicyDecision
+    result: ToolResult
 
 
 @dataclass(frozen=True)

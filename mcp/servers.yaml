@@ -7,3 +7,12 @@ servers:
         risk: read
         allow_roles: [customer, support, sales, manager, admin]
         external_write: false
+        argument_schema:
+          order_id: string
+      - name: erp.create_return
+        risk: write
+        allow_roles: [manager, admin]
+        external_write: true
+        argument_schema:
+          order_id: string
+          reason: string
