@@ -10,8 +10,8 @@ from packages.scheduler import RedisJobQueue, ScheduleDefinition, Scheduler, loa
 from services.bootstrap import build_runtime, build_trace_exporter
 from services.worker.executor import (
     AgentScheduleExecutor,
-    build_worker_identity,
     build_schedule_job_payload,
+    build_worker_identity,
     validate_agent_schedule,
     validate_schedule_job_payload,
 )

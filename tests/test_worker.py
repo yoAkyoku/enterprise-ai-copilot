@@ -48,9 +48,8 @@ class WorkerExecutionTests(unittest.TestCase):
         self.assertEqual(audit.events[-1].workspace_id, "demo-workspace")
 
     def test_production_worker_identity_never_defaults_to_demo_scope(self) -> None:
-        with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(WorkerConfigurationError):
-                build_worker_identity("production")
+        with patch.dict(os.environ, {}, clear=True), self.assertRaises(WorkerConfigurationError):
+            build_worker_identity("production")
 
     def test_production_worker_identity_requires_allowed_role_and_scope(self) -> None:
         values = {
@@ -59,9 +58,11 @@ class WorkerExecutionTests(unittest.TestCase):
             "AGENT_WORKER_TENANT_ID": "tenant-a",
             "AGENT_WORKER_ROLE": "customer",
         }
-        with patch.dict(os.environ, values, clear=True):
-            with self.assertRaises(WorkerConfigurationError):
-                build_worker_identity("production")
+        with (
+            patch.dict(os.environ, values, clear=True),
+            self.assertRaises(WorkerConfigurationError),
+        ):
+            build_worker_identity("production")
         values["AGENT_WORKER_ROLE"] = "support"
         with patch.dict(os.environ, values, clear=True):
             identity = build_worker_identity("production")
@@ -81,7 +82,9 @@ class WorkerExecutionTests(unittest.TestCase):
         )
 
         with self.assertRaises(WorkerConfigurationError):
-            build_schedule_job_payload(self.definition(), datetime(2030, 1, 1))
+            build_schedule_job_payload(
+                self.definition(), datetime.fromisoformat("2030-01-01T00:00:00")
+            )
         payload = build_schedule_job_payload(self.definition(), datetime(2030, 1, 1, tzinfo=UTC))
         payload["scheduled_at"] = "2030-01-01T01:00:00"
         with self.assertRaises(WorkerConfigurationError):

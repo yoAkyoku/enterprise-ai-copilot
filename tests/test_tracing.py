@@ -99,9 +99,8 @@ class TracingTests(unittest.TestCase):
     def test_production_trace_configuration_fails_closed_and_accepts_allowlisted_endpoint(
         self,
     ) -> None:
-        with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaises(RuntimeError):
-                build_trace_exporter("production")
+        with patch.dict(os.environ, {}, clear=True), self.assertRaises(RuntimeError):
+            build_trace_exporter("production")
         with patch.dict(
             os.environ,
             {
