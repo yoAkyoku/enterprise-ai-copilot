@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -13,7 +15,7 @@ from packages.observability import (
     TraceRecord,
 )
 from services.api.app import create_app
-from services.bootstrap import build_runtime, demo_identity
+from services.bootstrap import build_runtime, build_trace_exporter, demo_identity
 
 
 class TracingTests(unittest.TestCase):
@@ -93,6 +95,23 @@ class TracingTests(unittest.TestCase):
                 end_time_unix_nano=now + 1,
                 attributes={1: "non-string-key"},  # type: ignore[dict-item]
             )
+
+    def test_production_trace_configuration_fails_closed_and_accepts_allowlisted_endpoint(
+        self,
+    ) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaises(RuntimeError):
+                build_trace_exporter("production")
+        with patch.dict(
+            os.environ,
+            {
+                "AGENT_TRACE_ENDPOINT": "https://otel.example.invalid/v1/traces",
+                "AGENT_TRACE_ALLOWED_HOSTS": "otel.example.invalid",
+            },
+            clear=True,
+        ):
+            exporter = build_trace_exporter("production")
+        self.assertIsInstance(exporter, OtlpHttpTraceExporter)
 
 
 if __name__ == "__main__":

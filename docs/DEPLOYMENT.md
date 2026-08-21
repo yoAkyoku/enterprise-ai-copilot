@@ -93,6 +93,27 @@ OTLP spans to the monitoring system. Preserve `X-Request-Id`, trace, run,
 workspace and audit identifiers in the log/trace pipeline without recording
 tokens, image bytes or raw sensitive arguments.
 
+## Scheduled worker
+
+Run the worker as a separate process with the same immutable image and
+production environment. Production and staging require real Agent execution;
+the dry-run mode is for local contract checks only:
+
+```powershell
+python -m services.worker.main schedules/order-status-demo.yaml `
+  --redis-url $env:AGENT_REDIS_URL --queue-mode consume `
+  --execution-mode agent --worker-id worker-01
+```
+
+`AGENT_WORKER_USER_ID`, `AGENT_WORKER_WORKSPACE_ID`,
+`AGENT_WORKER_TENANT_ID` and `AGENT_WORKER_ROLE` come from deployment
+configuration, never from Redis job payloads. The worker verifies schedule ID,
+version, task inputs and exact payload keys before execution, passes the
+trusted identity through the same policy/MCP boundary as the API, and exports
+the same privacy-safe OTLP tool spans. Keep the Redis consumer group and
+`claim_after_seconds` longer than the maximum expected task runtime; verify
+reclaim and cancellation behavior in the target deployment.
+
 ## Backup, rollback and release evidence
 
 Use `scripts/backup_sqlite.py` to create and integrity-check a database backup.

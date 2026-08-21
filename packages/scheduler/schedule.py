@@ -57,6 +57,8 @@ class ScheduleDefinition:
     retry_limit: int = 0
     catch_up: bool = False
     permissions_mode: str = "read_only"
+    query: str | None = None
+    order_id: str | None = None
     expires_at: str | None = None
     notify_channel: str | None = None
     notify_only_if: str = "finding_or_failure"
@@ -171,6 +173,12 @@ def load_schedule(path: str | Path) -> ScheduleDefinition:
         or not isinstance(notify, dict)
     ):
         raise TypeError("schedule, run, permissions and notify must be mappings")
+    query = run.get("query")
+    order_id = run.get("order_id")
+    if query is not None and not isinstance(query, str):
+        raise TypeError("run.query must be a string")
+    if order_id is not None and not isinstance(order_id, str):
+        raise TypeError("run.order_id must be a string")
     return ScheduleDefinition(
         id=str(raw["id"]),
         version=str(raw["version"]),
@@ -185,6 +193,8 @@ def load_schedule(path: str | Path) -> ScheduleDefinition:
         retry_limit=int(run.get("retry_limit", 0)),
         catch_up=bool(run.get("catch_up", False)),
         permissions_mode=str(permissions.get("mode", "read_only")),
+        query=query,
+        order_id=order_id,
         expires_at=schedule.get("expires_at"),
         notify_channel=str(notify["channel"]) if notify.get("channel") is not None else None,
         notify_only_if=str(notify.get("only_if", "finding_or_failure")),

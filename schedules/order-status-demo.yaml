@@ -13,6 +13,8 @@ run:
   max_concurrency: 1
   retry_limit: 1
   catch_up: false
+  query: "Provide the verified order status for the scheduled briefing."
+  order_id: SO-1001
 
 permissions:
   mode: read_only

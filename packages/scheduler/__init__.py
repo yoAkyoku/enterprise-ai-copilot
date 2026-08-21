@@ -1,6 +1,6 @@
 """Deterministic schedule contracts and an idempotent local scheduler."""
 
-from .queue import InMemoryJobQueue, Job, JobQueue, QueueError, RedisJobQueue
+from .queue import InMemoryJobQueue, Job, JobQueue, QueueError, RedisJobQueue, RunClaim
 from .schedule import (
     NotificationSink,
     ScheduleDefinition,
@@ -17,6 +17,7 @@ __all__ = [
     "NotificationSink",
     "QueueError",
     "RedisJobQueue",
+    "RunClaim",
     "ScheduleDefinition",
     "ScheduleRun",
     "ScheduleStatus",

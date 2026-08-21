@@ -310,6 +310,20 @@ def validate_schedule(path: str | Path) -> ValidationReport:
             report.issues.append("run.max_concurrency must be greater than zero")
         if run.get("mode", "isolated") not in {"isolated", "shared"}:
             report.issues.append("run.mode must be isolated or shared")
+        if run.get("query") is not None and (
+            not isinstance(run["query"], str)
+            or not run["query"].strip()
+            or len(run["query"]) > 4000
+        ):
+            report.issues.append("run.query must be a non-empty string of at most 4000 characters")
+        if run.get("order_id") is not None and (
+            not isinstance(run["order_id"], str)
+            or not run["order_id"].strip()
+            or len(run["order_id"]) > 128
+        ):
+            report.issues.append(
+                "run.order_id must be a non-empty string of at most 128 characters"
+            )
     permissions = mapping.get("permissions")
     if not isinstance(permissions, dict) or permissions.get("mode") not in {
         "read_only",

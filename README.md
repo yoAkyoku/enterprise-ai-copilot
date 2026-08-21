@@ -54,6 +54,11 @@ Multi-replica staging/production also requires `AGENT_REDIS_URL`; the API uses
 an atomic Redis limiter for upload and Vision/OCR abuse controls. Development
 without Redis intentionally uses an in-process limiter.
 
+Scheduled production workers run `services.worker.main` in `agent` mode with a
+deployment-controlled service identity. Queue payloads cannot choose tenant or
+user scope; the worker revalidates the reviewed schedule before invoking the
+same Agent Runtime and MCP policy boundary.
+
 Production also requires `AGENT_TRACE_ENDPOINT` and an exact
 `AGENT_TRACE_ALLOWED_HOSTS` entry. Trace attributes are bounded and reject
 credential, token, prompt, image and raw-content fields before export.

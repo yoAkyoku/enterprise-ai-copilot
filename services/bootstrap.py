@@ -15,7 +15,24 @@ from packages.agent_runtime import (
     PolicyEngine,
     StreamableHttpMcpGateway,
 )
-from packages.observability import TraceExporter
+from packages.observability import OtlpHttpTraceExporter, TraceExporter
+
+
+def build_trace_exporter(platform_env: str | None = None) -> TraceExporter | None:
+    """Build the configured OTLP exporter and fail closed in production."""
+
+    resolved_env = (platform_env or os.getenv("AGENT_PLATFORM_ENV", "development")).lower()
+    endpoint = os.getenv("AGENT_TRACE_ENDPOINT", "").strip()
+    if not endpoint:
+        if resolved_env in {"staging", "production"}:
+            raise RuntimeError("staging and production require AGENT_TRACE_ENDPOINT")
+        return None
+    return OtlpHttpTraceExporter(
+        endpoint,
+        allowed_hosts=os.getenv("AGENT_TRACE_ALLOWED_HOSTS", "").split(","),
+        bearer_token=os.getenv("AGENT_TRACE_BEARER_TOKEN") or None,
+        timeout_seconds=float(os.getenv("AGENT_TRACE_TIMEOUT_SECONDS", "5")),
+    )
 
 
 def build_runtime(

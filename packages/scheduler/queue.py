@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import threading
 import time
 import uuid
 from collections import deque
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Literal, Protocol
 
 
 class QueueError(RuntimeError):
@@ -21,6 +22,14 @@ class Job:
     payload: dict[str, object]
     enqueued_at: str
     receipt: str | None = None
+
+
+@dataclass(frozen=True)
+class RunClaim:
+    """A distributed execution claim for one schedule idempotency key."""
+
+    status: Literal["claimed", "in_progress", "completed"]
+    token: str | None = None
 
 
 class JobQueue(Protocol):
@@ -139,6 +148,74 @@ class RedisJobQueue:
             self.client.xack(self.stream, self.group, job.receipt)  # type: ignore[attr-defined]
         except Exception as exc:
             raise QueueError("Redis job acknowledgement failed") from exc
+
+    def claim_run(
+        self,
+        idempotency_key: str,
+        *,
+        lease_seconds: int = 300,
+        retention_seconds: int = 86400,
+    ) -> RunClaim:
+        """Claim one schedule run, retaining terminal completion for dedupe."""
+
+        if not idempotency_key or len(idempotency_key) > 256:
+            raise ValueError("run idempotency key is invalid")
+        if lease_seconds <= 0 or lease_seconds > 86400:
+            raise ValueError("run lease is invalid")
+        if retention_seconds <= 0 or retention_seconds > 7 * 86400:
+            raise ValueError("run completion retention is invalid")
+        state_key = self._run_state_key(idempotency_key)
+        token = uuid.uuid4().hex
+        running_value = f"running:{token}"
+        try:
+            current = self.client.get(state_key)  # type: ignore[attr-defined]
+            if current is None:
+                created = self.client.set(  # type: ignore[attr-defined]
+                    state_key, running_value, nx=True, ex=lease_seconds
+                )
+                if created:
+                    return RunClaim("claimed", token)
+                current = self.client.get(state_key)  # type: ignore[attr-defined]
+            normalized = current.decode() if isinstance(current, bytes) else str(current)
+            if normalized == "completed":
+                return RunClaim("completed")
+            return RunClaim("in_progress")
+        except Exception as exc:
+            raise QueueError("Redis run claim failed") from exc
+
+    def complete_run(
+        self,
+        idempotency_key: str,
+        token: str,
+        *,
+        retention_seconds: int = 86400,
+    ) -> None:
+        """Atomically convert an owned lease into a terminal dedupe marker."""
+
+        if not idempotency_key or len(idempotency_key) > 256:
+            raise ValueError("run idempotency key is invalid")
+        if not token or len(token) > 128:
+            raise ValueError("run claim token is invalid")
+        if retention_seconds <= 0 or retention_seconds > 7 * 86400:
+            raise ValueError("run completion retention is invalid")
+        state_key = self._run_state_key(idempotency_key)
+        script = (
+            "if redis.call('get', KEYS[1]) == ARGV[1] then "
+            "redis.call('set', KEYS[1], 'completed', 'EX', ARGV[2]); return 1; "
+            "end; return 0"
+        )
+        try:
+            result = self.client.eval(  # type: ignore[attr-defined]
+                script, 1, state_key, f"running:{token}", retention_seconds
+            )
+        except Exception as exc:
+            raise QueueError("Redis run completion failed") from exc
+        if result != 1:
+            raise QueueError("Redis run claim was lost before completion")
+
+    def _run_state_key(self, idempotency_key: str) -> str:
+        digest = hashlib.sha256(idempotency_key.encode("utf-8")).hexdigest()
+        return f"{self.stream}:runs:{digest}"
 
     def _claim_abandoned(self) -> list[tuple[object, object]]:
         try:

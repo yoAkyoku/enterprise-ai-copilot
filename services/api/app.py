@@ -958,26 +958,14 @@ def create_app(
 
 
 def build_default_app() -> FastAPI:
-    from services.bootstrap import build_runtime
+    from services.bootstrap import build_runtime, build_trace_exporter
 
     root = Path(__file__).resolve().parents[2]
     platform_env = os.getenv("AGENT_PLATFORM_ENV", "development").lower()
     data_dir = Path(os.getenv("AGENT_DATA_DIR", str(root / ".data")))
     audit_store = SqliteAuditStore(data_dir / "agent-platform.sqlite3")
     audit = AuditLog(store=audit_store)
-    trace_exporter = None
-    trace_endpoint = os.getenv("AGENT_TRACE_ENDPOINT", "").strip()
-    if trace_endpoint:
-        from packages.observability import OtlpHttpTraceExporter
-
-        trace_exporter = OtlpHttpTraceExporter(
-            trace_endpoint,
-            allowed_hosts=os.getenv("AGENT_TRACE_ALLOWED_HOSTS", "").split(","),
-            bearer_token=os.getenv("AGENT_TRACE_BEARER_TOKEN") or None,
-            timeout_seconds=float(os.getenv("AGENT_TRACE_TIMEOUT_SECONDS", "5")),
-        )
-    elif platform_env in {"staging", "production"}:
-        raise RuntimeError("staging and production require AGENT_TRACE_ENDPOINT")
+    trace_exporter = build_trace_exporter(platform_env)
     runtime, _ = build_runtime(audit=audit, trace_exporter=trace_exporter)
     attachment_root = Path(os.getenv("AGENT_ATTACHMENT_ROOT", str(data_dir / "attachments")))
     attachment_db = Path(os.getenv("AGENT_ATTACHMENT_DB", str(data_dir / "attachments.sqlite3")))
