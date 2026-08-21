@@ -14,6 +14,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - agent-data:/app/.data
     read_only: true
@@ -59,6 +61,8 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     volumes:
       - agent-data:/app/.data
     read_only: true
@@ -67,6 +71,23 @@ services:
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    env_file:
+      - ${AGENT_ENV_FILE:-deploy/production.env.example}
+    command: ["python", "scripts/migrate_postgres.py"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
 
   scheduler:
     build:
@@ -110,6 +131,20 @@ services:
       timeout: 3s
       retries: 10
 
+  postgres:
+    image: postgres:16-alpine@sha256:cf78e76683b9ca8c5733cbbdce6c9262b45b6767934dd0a95e671f9a0fc20685
+    env_file:
+      - ${AGENT_ENV_FILE:-deploy/production.env.example}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
 volumes:
   agent-data:
   redis-data:
+  postgres-data:

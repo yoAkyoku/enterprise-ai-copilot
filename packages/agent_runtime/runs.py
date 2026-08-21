@@ -19,8 +19,8 @@ class StoredRun:
 
 
 class RunStore(Protocol):
-    def save(self, run: StoredRun) -> None:
-        """Persist a run record without changing its result."""
+    def save(self, run: StoredRun) -> StoredRun | None:
+        """Persist a run, returning an existing idempotent record when present."""
 
     def get(self, run_id: str, identity: IdentityContext) -> StoredRun | None:
         """Return a run only when every identity scope matches."""
@@ -94,7 +94,7 @@ class SQLiteRunStore:
             "user_id, workspace_id, tenant_id, role, idempotency_key, created_at FROM agent_runs"
         )
 
-    def save(self, run: StoredRun) -> None:
+    def save(self, run: StoredRun) -> StoredRun:
         with self._lock:
             self._connection.execute(
                 "INSERT INTO agent_runs "
@@ -118,6 +118,7 @@ class SQLiteRunStore:
                 ),
             )
             self._connection.commit()
+        return run
 
     def get(self, run_id: str, identity: IdentityContext) -> StoredRun | None:
         with self._lock:

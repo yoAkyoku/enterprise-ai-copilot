@@ -22,8 +22,8 @@ controls remain deployment-specific gates.
    content. Runtime policy remains authoritative.
 3. MCP tools are external capability boundaries. Only registered, allowlisted,
    risk-classified tools may execute.
-4. The preview SQLite adapter is single-process durability, not a clustered
-   audit guarantee.
+4. PostgreSQL is the shared production metadata boundary; SQLite remains a
+   single-process/single-node option and is not a clustered audit guarantee.
 
 ## Primary threats and controls
 
@@ -41,7 +41,7 @@ controls remain deployment-specific gates.
 | Provider/MCP SSRF | HTTPS exact-host allowlist, literal private/loopback/metadata host rejection, no redirects and bounded responses | `MCP-011`, `IMG-006` | DNS rebinding and target proxy policy require deployment-level controls |
 | Cross-scope attachment read | Metadata and content queries require authenticated user/workspace/tenant scope | `ATT-001`, `ATT-002` | Admin/support scoped access policy pending |
 | Token claim forgery | HS256 signature, expiry, issuer/audience options and required identity claims; coordinated HS256 rotation runbook | `AUTH-001`, `AUTH-002` | A real deployment must execute and record the selected OIDC or HS256 process |
-| Durable run leakage | SQLite run reads filter user, workspace, tenant and role; audit dashboard filters workspace | `RUN-001` | Clustered database and row-level policy validation pending |
+| Durable run leakage | PostgreSQL and SQLite run reads filter user, workspace, tenant and role; audit dashboard filters workspace | `RUN-001` | Clustered database and row-level policy validation pending |
 
 ## Explicit non-goals for v0.1
 

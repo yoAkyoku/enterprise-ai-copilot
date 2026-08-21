@@ -24,6 +24,9 @@ class EventStore(Protocol):
     ) -> list[AuditEvent]:
         """Return events ordered by insertion."""
 
+    def healthcheck(self) -> bool:
+        """Return whether the backing store can accept a probe query."""
+
 
 class SqliteAuditStore:
     """Small durable event store for local preview and single-worker deployments.
@@ -132,6 +135,19 @@ class AuditLog:
         self.events.append(event)
         if self._store is not None:
             self._store.append(event)
+
+    def healthcheck(self) -> bool:
+        """Probe the durable event store when one is configured."""
+
+        if self._store is None:
+            return True
+        healthcheck = getattr(self._store, "healthcheck", None)
+        if healthcheck is None:
+            return True
+        try:
+            return bool(healthcheck())
+        except Exception:  # noqa: BLE001 - readiness must fail closed
+            return False
 
     def list_events(
         self,

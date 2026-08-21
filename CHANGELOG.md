@@ -18,6 +18,9 @@ All notable changes are documented here.
   smoke for model, MCP, Vision/OCR, S3, ClamAV and OTLP boundaries.
 - Added a Redis schedule producer with per-slot idempotency, continuous worker
   graceful shutdown and immutable production container dependencies.
+- Added PostgreSQL shared-state adapters, checked-in PostgreSQL migrations,
+  Compose migration gating and a password-safe custom-format backup helper;
+  target backup/restore and failover evidence remain release gates.
 
 ## 0.1.0-dev
 

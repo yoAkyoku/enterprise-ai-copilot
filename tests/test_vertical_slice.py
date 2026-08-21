@@ -118,6 +118,8 @@ class VerticalSliceTests(unittest.TestCase):
             "MANIFEST.in",
             "scripts/production_preflight.py",
             "scripts/connector_smoke.py",
+            "scripts/migrate_postgres.py",
+            "scripts/backup_postgres.py",
         )
         for relative_path in required:
             with self.subTest(relative_path=relative_path):

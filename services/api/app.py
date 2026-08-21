@@ -48,9 +48,16 @@ from packages.attachments import (
     AttachmentService,
     MalwareDetected,
     MalwareScanUnavailable,
+    SQLiteAttachmentStore,
 )
 from packages.contracts import validate_repository
 from packages.observability import MetricsRegistry, TraceExporter, TraceRecord, new_span_id
+from packages.persistence import (
+    PostgresApprovalStore,
+    PostgresAttachmentStore,
+    PostgresAuditStore,
+    PostgresRunStore,
+)
 from packages.vision import (
     OpenAICompatibleVisionProvider,
     VisionAnalysisError,
@@ -140,9 +147,12 @@ class RunService:
             allow_external_model_processing=request.allow_external_processing,
         )
         stored = StoredRun(result=result, identity=identity, idempotency_key=idempotency_key)
-        self.runs[result.run_id] = stored
         if self.store is not None:
-            self.store.save(stored)
+            persisted = self.store.save(stored)
+            if persisted is not None:
+                stored = persisted
+                result = persisted.result
+        self.runs[result.run_id] = stored
         if idempotency_key:
             self.idempotency[
                 (
@@ -340,6 +350,16 @@ def create_app(
         if auth_mode == "oidc_jwks"
         else None
     )
+
+    def component_health(component: object | None) -> bool:
+        healthcheck = getattr(component, "healthcheck", None)
+        if healthcheck is None:
+            return True
+        try:
+            return bool(healthcheck())
+        except Exception:  # noqa: BLE001 - readiness must fail closed
+            return False
+
     service = RunService(runtime, audit, run_store)
     upload_limiter = upload_limiter or InMemoryRateLimiter(upload_rate_limit)
     analysis_limiter = analysis_limiter or InMemoryRateLimiter(analysis_rate_limit)
@@ -510,8 +530,13 @@ def create_app(
             "object_storage": attachments is not None and attachments.storage_mode == "s3",
             "durable_runs": run_store is not None,
             "approvals": approval_service is not None,
-            "persistent_storage": (storage_mode or os.getenv("AGENT_STORAGE_MODE", "memory"))
-            != "memory",
+            "persistent_storage": (
+                (storage_mode or os.getenv("AGENT_STORAGE_MODE", "memory")) != "memory"
+                and component_health(audit)
+                and component_health(run_store)
+                and component_health(getattr(approval_service, "store", None))
+                and component_health(getattr(attachments, "store", None))
+            ),
             "malware_scanning": attachments is not None and attachments.requires_scan,
             "attachment_retention": attachments is not None and attachments.retention_seconds > 0,
             "distributed_rate_limit": rate_limit_mode == "redis",
@@ -970,7 +995,19 @@ def build_default_app() -> FastAPI:
     root = Path(__file__).resolve().parents[2]
     platform_env = os.getenv("AGENT_PLATFORM_ENV", "development").lower()
     data_dir = Path(os.getenv("AGENT_DATA_DIR", str(root / ".data")))
-    audit_store = SqliteAuditStore(data_dir / "agent-platform.sqlite3")
+    storage_mode = os.getenv("AGENT_STORAGE_MODE", "memory").lower()
+    if storage_mode not in {"memory", "sqlite", "postgres"}:
+        raise RuntimeError("AGENT_STORAGE_MODE must be memory, sqlite or postgres")
+    database_url = os.getenv("AGENT_DATABASE_URL", "").strip()
+    if storage_mode == "postgres" and not database_url:
+        raise RuntimeError("AGENT_DATABASE_URL is required when AGENT_STORAGE_MODE=postgres")
+    if platform_env in {"staging", "production"} and storage_mode not in {"sqlite", "postgres"}:
+        raise RuntimeError("staging and production require AGENT_STORAGE_MODE=sqlite or postgres")
+    audit_store = (
+        PostgresAuditStore(database_url)
+        if storage_mode == "postgres"
+        else SqliteAuditStore(data_dir / "agent-platform.sqlite3")
+    )
     audit = AuditLog(store=audit_store)
     trace_exporter = build_trace_exporter(platform_env)
     runtime, _ = build_runtime(audit=audit, trace_exporter=trace_exporter)
@@ -1085,11 +1122,13 @@ def build_default_app() -> FastAPI:
             redis_client, analysis_rate_limit, prefix="agent:analysis"
         )
         rate_limit_mode = "redis"
-    from packages.attachments import SQLiteAttachmentStore
-
     attachment_service = AttachmentService(
         attachment_root,
-        store=SQLiteAttachmentStore(attachment_db),
+        store=(
+            PostgresAttachmentStore(database_url)
+            if storage_mode == "postgres"
+            else SQLiteAttachmentStore(attachment_db)
+        ),
         blob_store=blob_store,
         scanner=scanner,
         max_bytes=max_bytes,
@@ -1114,9 +1153,17 @@ def build_default_app() -> FastAPI:
             )
         )
     atexit.register(attachment_service.close)
-    run_store = SQLiteRunStore(data_dir / "agent-platform.sqlite3")
+    run_store = (
+        PostgresRunStore(database_url)
+        if storage_mode == "postgres"
+        else SQLiteRunStore(data_dir / "agent-platform.sqlite3")
+    )
     atexit.register(run_store.close)
-    approval_service = ApprovalService(SQLiteApprovalStore(data_dir / "agent-platform.sqlite3"))
+    approval_service = ApprovalService(
+        PostgresApprovalStore(database_url)
+        if storage_mode == "postgres"
+        else SQLiteApprovalStore(data_dir / "agent-platform.sqlite3")
+    )
     atexit.register(approval_service.close)
     atexit.register(audit_store.close)
     auth_mode = os.getenv("AGENT_AUTH_MODE", "bearer")
@@ -1146,7 +1193,7 @@ def build_default_app() -> FastAPI:
         oidc_allowed_hosts=oidc_allowed_hosts,
         platform_env=platform_env,
         provider_mode=os.getenv("AGENT_PROVIDER_MODE", "synthetic"),
-        storage_mode=os.getenv("AGENT_STORAGE_MODE", "memory"),
+        storage_mode=storage_mode,
         attachments=attachment_service,
         vision=vision_service,
         run_store=run_store,

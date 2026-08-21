@@ -29,9 +29,10 @@ customer contracts.
   storage, malware scanning and distributed rate limiting.
 - Production traces and metrics are allowlisted and bounded. Sensitive keys
   containing credentials, tokens, prompts, images or raw content are rejected.
-- SQLite audit/run metadata and backups must be encrypted at rest by the host
-  or storage service. Backups must use a shorter access list than application
-  data and must have a documented expiry.
+- PostgreSQL audit/run metadata and backups must be encrypted at rest by the
+  host or storage service. SQLite metadata has the same requirement when the
+  single-node mode is selected. Backups must use a shorter access list than
+  application data and must have a documented expiry.
 - Operators must configure a retention value for audit/run records separately
   from attachment retention and document the value in the deployment record.
 

@@ -53,13 +53,13 @@ are not silently claimed as executed in the synthetic release.
 The text-model boundary uses the same OpenAI-compatible contract. It receives
 only a user query plus server-verified evidence, requires explicit
 `allow_external_processing` consent, and labels returned prose as unverified.
-The production Compose profile starts the API, a Redis-backed schedule
-producer, a continuous worker and Redis; replace the example environment with
-secret-managed values before use.
+The production Compose profile starts the API, a PostgreSQL migration job, a
+Redis-backed schedule producer, a continuous worker, Redis and PostgreSQL;
+replace the example environment with secret-managed values before use.
 Run `python scripts/production_preflight.py --json` before startup. The
-checked-in production profile is a single-node SQLite deployment; do not scale
-API replicas against the same volume until a reviewed shared-database adapter
-and migration path is added.
+checked-in production profile uses PostgreSQL for shared metadata. SQLite is
+still available only as an explicitly selected single-node deployment; do not
+share its volume across API replicas.
 
 Multi-replica staging/production also requires `AGENT_REDIS_URL`; the API uses
 an atomic Redis limiter for upload and Vision/OCR abuse controls. Development
@@ -99,11 +99,11 @@ filesystem adapter.
 ## Status
 
 This is not yet a formal production release. Local scheduler/queue adapters,
-SQLite audit/run/approval adapters, manifest validator, review-gated Plugin
-registry, HTTP API, operations console, image evidence flow and metrics are
-included. Formal release still requires target-environment identity/provider,
-connector, S3/ClamAV/Redis, backup/restore, Docker/browser, CI/tagged-release
-and external deployment evidence.
+PostgreSQL and SQLite audit/run/approval adapters, manifest validator,
+review-gated Plugin registry, HTTP API, operations console, image evidence
+flow and metrics are included. Formal release still requires target-environment
+identity/provider, connector, S3/ClamAV/Redis, PostgreSQL backup/restore,
+Docker/browser, CI/tagged-release and external deployment evidence.
 
 ## API authentication boundary
 

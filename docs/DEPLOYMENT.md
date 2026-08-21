@@ -22,7 +22,10 @@ Before starting the API, provision and test:
   configure an explicit HTTPS `AGENT_S3_ENDPOINT`, exact
   `AGENT_S3_ALLOWED_HOSTS` and `AGENT_S3_KMS_KEY_ID`;
 - ClamAV or an equivalent reviewed scanner reachable through the clamd protocol;
-- a persistent volume for `/app/.data`, encrypted backups and a tested restore;
+- PostgreSQL for shared durable state, a persistent volume for its data, and
+  `pg_dump`/`pg_restore` backup tooling with a tested restore;
+- a persistent volume for `/app/.data` only when explicitly selecting the
+  documented single-node SQLite mode;
 - TLS termination, ingress authentication/rate limits and centralized logs.
 
 Copy `deploy/production.env.example` into a secret-managed file, replace every
@@ -41,18 +44,20 @@ docker compose --project-directory . -f deploy/docker-compose.production.yml con
 docker compose --project-directory . -f deploy/docker-compose.production.yml up -d --build
 ```
 
-The production profile runs the API, a schedule producer, a continuous Redis
-Streams worker and Redis. It binds the API to loopback for a TLS reverse proxy, uses a read-only
-container filesystem, and restarts the API/worker after failure. Replace the
+The production profile runs the API, a migration job, a schedule producer, a
+continuous Redis Streams worker, Redis and PostgreSQL. It binds the API to
+loopback for a TLS reverse proxy, uses read-only container filesystems, and
+restarts long-running services after failure. Replace the
 example env file with a secret-managed file before starting; the checked-in
 example intentionally points at `example.invalid` and is not a live deployment.
 
-The checked-in production profile is a single-node SQLite deployment. It is
-appropriate only when the encrypted `/app/.data` volume is owned by one API
-instance and the operator has tested backup/restore. Do not run multiple API
-replicas against that volume and do not treat SQLite as a high-availability
-database. A PostgreSQL adapter is a separate deployment track; until it is
-implemented and validated, horizontal scaling is `UNVERIFIED`.
+The checked-in production profile selects PostgreSQL and runs the checked-in
+migrations before API and worker services. The PostgreSQL adapter provides the
+shared metadata boundary needed by multiple API replicas, but horizontal
+scaling, failover and row-level policy remain deployment validation gates.
+SQLite remains available only when `AGENT_STORAGE_MODE=sqlite` is explicitly
+selected; that mode is single-node and must not share its volume across API
+replicas.
 
 Place the API behind a TLS reverse proxy; do not expose the unauthenticated
 development port directly to the public Internet. The production environment
@@ -98,14 +103,18 @@ verification artifact for each real rotation.
 
 After the service starts, check `/health` for configured adapter identities and
 `/ready` for the production dependency gate. A `200` from `/health` alone is
-not sufficient. Run the checked-in migrations against the persistent database
-before accepting traffic:
+not sufficient. Run the checked-in PostgreSQL migrations against the persistent
+database before accepting traffic. The Compose migration service performs this
+step; the standalone command is useful for controlled deployments:
 
 ```powershell
-python scripts/migrate.py .data/agent-platform.sqlite3
+python scripts/migrate_postgres.py $env:AGENT_DATABASE_URL
 Invoke-WebRequest http://127.0.0.1:8000/health
 Invoke-WebRequest http://127.0.0.1:8000/ready
 ```
+
+For an explicitly selected single-node SQLite deployment, use
+`python scripts/migrate.py .data/agent-platform.sqlite3` instead.
 
 Before `up`, run the static preflight using the secret-managed environment;
 after dependencies are reachable, add `--live`:
@@ -166,11 +175,16 @@ confirmation.
 
 ## Backup, rollback and release evidence
 
-Use `scripts/backup_sqlite.py` to create and integrity-check a database backup.
-Store backups outside the application volume, encrypt them, and periodically
-perform a restore into an isolated environment. Roll back by deploying the
-previous immutable image/tag, applying only backward-compatible migrations,
-and recording the decision in the release evidence.
+For the production Compose profile, use
+`python scripts/backup_postgres.py <destination>` with `AGENT_DATABASE_URL`
+from the secret manager. The helper creates a custom-format backup without
+putting the password in the `pg_dump` argument list; restore it with
+`pg_restore` into an isolated PostgreSQL instance, then run readiness and
+scoped-data checks. Store backups outside the database volume and encrypt them.
+For an explicitly selected single-node SQLite deployment, use
+`scripts/backup_sqlite.py` instead. Roll back by deploying the previous
+immutable image/tag, applying only backward-compatible migrations, and
+recording the decision in the release evidence.
 
 A release is not production-ready until the corresponding rows in
 `docs/validation/evidence-index.csv` are `PASS` or explicitly `WAIVED` with

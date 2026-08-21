@@ -182,6 +182,8 @@ class PlatformContractTests(unittest.TestCase):
         compose = (ROOT / "deploy" / "docker-compose.production.yml").read_text(encoding="utf-8")
         self.assertRegex(dockerfile, r"FROM python:3\.12-slim-bookworm@sha256:[0-9a-f]{64}")
         self.assertRegex(compose, r"image: redis:7\.4-alpine@sha256:[0-9a-f]{64}")
+        self.assertRegex(compose, r"image: postgres:16-alpine@sha256:[0-9a-f]{64}")
+        self.assertIn("scripts/migrate_postgres.py", compose)
 
     def test_agent_instruction_path_traversal_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

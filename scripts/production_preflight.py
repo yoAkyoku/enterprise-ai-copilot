@@ -82,6 +82,42 @@ def _static_checks() -> list[Check]:
             _value("AGENT_PROVIDER_MODE") or "AGENT_PROVIDER_MODE is missing",
         )
     )
+    storage_mode = _value("AGENT_STORAGE_MODE").lower()
+    if storage_mode == "postgres":
+        require("AGENT_DATABASE_URL")
+        database_url = _value("AGENT_DATABASE_URL")
+        parsed_database = urllib.parse.urlparse(database_url)
+        checks.append(
+            Check(
+                "storage.postgres_url",
+                "PASS"
+                if parsed_database.scheme in {"postgres", "postgresql"}
+                and bool(parsed_database.hostname)
+                and not _placeholder(database_url)
+                else "FAIL",
+                "PostgreSQL DSN is configured"
+                if parsed_database.scheme in {"postgres", "postgresql"}
+                and bool(parsed_database.hostname)
+                and not _placeholder(database_url)
+                else "AGENT_DATABASE_URL must be a non-placeholder PostgreSQL DSN",
+            )
+        )
+    elif storage_mode == "sqlite":
+        checks.append(
+            Check(
+                "storage.sqlite_single_node",
+                "PASS",
+                "SQLite is explicitly selected; deployment is single-node only",
+            )
+        )
+    else:
+        checks.append(
+            Check(
+                "storage.mode",
+                "FAIL",
+                "production requires AGENT_STORAGE_MODE=postgres or sqlite",
+            )
+        )
     require("AGENT_REDIS_URL")
     require("AGENT_TRACE_ENDPOINT")
     require("AGENT_TRACE_ALLOWED_HOSTS")

@@ -138,10 +138,10 @@ v1 SHOULD be a modular monolith with separate worker processes:
 ### 4.3 Reference technology stack
 
 這是參考實作，不是對使用者的硬性限制。此 checkout 的 production
-Compose profile 目前採單節點 SQLite；它不能安全地支援多個 API replicas。
-PostgreSQL remains the recommended shared-store target, but horizontal scale
-is not part of the current production-track release until its adapter,
-migrations and recovery tests are implemented.
+Compose profile 採 PostgreSQL shared store，並由 migration service 先套用
+checked-in migrations。SQLite 仍可供 local 或明確選擇的單節點部署使用，
+不可由多個 API replicas 共用同一個 SQLite volume。PostgreSQL 的 failover、
+row-level policy、backup/restore 與水平擴展仍須在目標環境驗證。
 
 - Frontend: Next.js + TypeScript.
 - API and runtime: FastAPI + Python.
@@ -602,7 +602,7 @@ Repository MUST include：
 - fake ERP MCP
 - FastAPI user-visible run API
 - Docker packaging and CI workflow
-- SQLite audit adapter
+- SQLite and PostgreSQL audit adapters
 - basic policy, idempotency and audit
 
 ### v0.2 Safe Agent Platform
@@ -629,7 +629,7 @@ Repository MUST include：
 - stable compatibility policy
 - durable long-running workflows
 - production connectors
-- migration and backup strategy
+- PostgreSQL migration and backup strategy
 - threat model and incident response
 - documented extension SDK
 

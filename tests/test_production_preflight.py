@@ -12,6 +12,8 @@ class ProductionPreflightTests(unittest.TestCase):
         values = {
             "AGENT_PLATFORM_ENV": "production",
             "AGENT_PROVIDER_MODE": "remote",
+            "AGENT_STORAGE_MODE": "postgres",
+            "AGENT_DATABASE_URL": "postgresql://agent:secret-reference@postgres.example.com:5432/agent",
             "AGENT_REDIS_URL": "rediss://redis.example.com:6380/0",
             "AGENT_TRACE_ENDPOINT": "https://otel.example.com/v1/traces",
             "AGENT_TRACE_ALLOWED_HOSTS": "otel.example.com",

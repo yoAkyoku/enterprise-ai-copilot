@@ -1,8 +1,9 @@
 # Migration and rollback procedure
 
-The reference deployment uses forward-compatible SQLite migrations for the
-preview adapter. Production operators must apply the same procedure to their
-durable database adapter and record the exact image, migration set and backup.
+The production Compose profile uses forward-compatible PostgreSQL migrations;
+the repository also retains SQLite migrations for local and explicit
+single-node deployments. Operators must record the exact image, migration set
+and backup for the selected adapter.
 
 ## Preflight
 
@@ -16,11 +17,12 @@ durable database adapter and record the exact image, migration set and backup.
 
 ## Apply and verify
 
-Run the checked-in migration tool against the target database, capture stdout,
-exit code and schema version, then verify integrity, startup, `/health`,
-`/ready`, authenticated reads, audit writes, queue delivery and attachment
-metadata access. Keep the previous immutable image available until the smoke
-tests and a short observation window pass.
+Run `scripts/migrate_postgres.py` against the production database (or
+`scripts/migrate.py` for explicit SQLite mode), capture stdout, exit code and
+schema version, then verify integrity, startup, `/health`, `/ready`,
+authenticated reads, audit writes, queue delivery and attachment metadata
+access. Keep the previous immutable image available until the smoke tests and a
+short observation window pass.
 
 ## Rollback
 
