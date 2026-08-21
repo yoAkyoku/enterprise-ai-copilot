@@ -19,7 +19,7 @@ def _is_reachable_ancestor(commit: str) -> bool:
     """Require evidence to refer to a real commit reachable from the release."""
 
     result = subprocess.run(
-        ["git", "merge-base", "--is-ancestor", commit, "HEAD"],
+        ["git", "-c", f"safe.directory={ROOT}", "merge-base", "--is-ancestor", commit, "HEAD"],
         cwd=ROOT,
         capture_output=True,
         check=False,

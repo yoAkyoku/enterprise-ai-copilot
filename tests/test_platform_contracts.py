@@ -39,6 +39,7 @@ from packages.scheduler import (
     Scheduler,
     ScheduleStatus,
 )
+from scripts.release_gate import _is_reachable_ancestor
 from services.api.app import create_app
 from services.bootstrap import build_runtime
 
@@ -50,6 +51,9 @@ class PlatformContractTests(unittest.TestCase):
         reports = validate_repository(ROOT)
         self.assertGreaterEqual(len(reports), 5)
         self.assertTrue(all(report.valid for report in reports), reports)
+
+    def test_release_gate_resolves_reachable_commit_with_safe_directory(self) -> None:
+        self.assertTrue(_is_reachable_ancestor("HEAD"))
 
     def test_mcp_health_is_explicit(self) -> None:
         gateway = InMemoryMcpGateway({})
