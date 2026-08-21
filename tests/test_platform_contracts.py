@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import urllib.error
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Self
@@ -113,10 +114,12 @@ class PlatformContractTests(unittest.TestCase):
                         "jsonrpc": "2.0",
                         "result": {
                             "structuredContent": {
-                                "data": {"status": "in_transit"},
+                                "data": {"order_id": "SO-1001", "status": "in_transit"},
                                 "source_id": "erp:SO-1001",
                                 "observed_at": "2026-08-20T00:00:00+00:00",
                                 "external_ref": "SO-1001",
+                                "workspace_id": "workspace-a",
+                                "tenant_id": "tenant-a",
                             }
                         },
                     }
@@ -150,6 +153,77 @@ class PlatformContractTests(unittest.TestCase):
         payload = json.loads(outgoing.data)
         self.assertEqual(payload["params"]["arguments"], {"order_id": "SO-1001"})
         self.assertEqual(captured["timeout"], 10.0)
+
+    def test_remote_mcp_rejects_result_scope_mismatch(self) -> None:
+        gateway = StreamableHttpMcpGateway(
+            "https://mcp.example.test/tools",
+            InMemoryMcpGateway({}).definitions,
+            allowed_hosts=["mcp.example.test"],
+        )
+        body = json.dumps(
+            {
+                "jsonrpc": "2.0",
+                "result": {
+                    "structuredContent": {
+                        "data": {"order_id": "SO-1001", "status": "delivered"},
+                        "source_id": "erp:SO-1001",
+                        "observed_at": "2026-08-20T00:00:00+00:00",
+                        "external_ref": "SO-1001",
+                        "workspace_id": "workspace-a",
+                        "tenant_id": "tenant-b",
+                    }
+                },
+            }
+        ).encode()
+
+        class Response:
+            status = 200
+
+            def __enter__(self) -> Self:
+                return self
+
+            def __exit__(self, *args: object) -> None:
+                return None
+
+            def read(self, _limit: int) -> bytes:
+                return body
+
+        class Opener:
+            def open(self, request: object, *, timeout: float) -> Response:
+                del request, timeout
+                return Response()
+
+        request = ToolCallRequest(
+            request_id="request-1",
+            trace_id="trace-1",
+            run_id="run-1",
+            identity=IdentityContext("user-a", "workspace-a", "tenant-a", "customer"),
+            tool_name="erp.get_order_status",
+            arguments={"order_id": "SO-1001"},
+            idempotency_key="run-1:order-status",
+        )
+        with patch("urllib.request.build_opener", return_value=Opener()):
+            result = gateway.call(request)
+
+        self.assertFalse(result.success)
+        self.assertIn("scope", result.error or "")
+
+    def test_remote_mcp_health_accepts_post_only_405_but_not_auth_failures(self) -> None:
+        gateway = StreamableHttpMcpGateway(
+            "https://mcp.example.test/tools",
+            InMemoryMcpGateway({}).definitions,
+            allowed_hosts=["mcp.example.test"],
+        )
+
+        class Opener:
+            def open(self, request: object, *, timeout: float) -> object:
+                del request, timeout
+                raise urllib.error.HTTPError(
+                    "https://mcp.example.test/tools", 405, "method not allowed", {}, None
+                )
+
+        with patch("urllib.request.build_opener", return_value=Opener()):
+            self.assertEqual(gateway.health()["status"], "healthy")
 
     def test_policy_role_matrix_is_explicit(self) -> None:
         policy = PolicyEngine(

@@ -101,6 +101,11 @@ class FilesystemBlobStore:
     def close(self) -> None:
         return None
 
+    def healthcheck(self) -> bool:
+        """Report whether the configured local blob root is available."""
+
+        return self.root.is_dir()
+
 
 class S3BlobStore:
     """S3-compatible adapter using an injected boto3 client.
@@ -172,3 +177,12 @@ class S3BlobStore:
 
     def close(self) -> None:
         return None
+
+    def healthcheck(self) -> bool:
+        """Check bucket reachability without reading or writing an object."""
+
+        try:
+            self.client.head_bucket(Bucket=self.bucket)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001 - readiness must fail closed
+            return False
+        return True

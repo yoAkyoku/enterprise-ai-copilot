@@ -159,6 +159,25 @@ class AgentRuntime:
         )
         tool_started = time.time_ns()
         tool_result = self._gateway.call(tool_request)
+        requested_order_id = order_id.strip()
+        result_data = tool_result.data if isinstance(tool_result.data, dict) else {}
+        returned_order_id = result_data.get("order_id")
+        returned_tenant_id = result_data.get("tenant_id")
+        returned_status = result_data.get("status")
+        provenance_verified = (
+            tool_result.success
+            and tool_result.workspace_id == identity.workspace_id
+            and tool_result.tenant_id == identity.tenant_id
+            and tool_result.external_ref == requested_order_id
+            and isinstance(tool_result.source_id, str)
+            and bool(tool_result.source_id.strip())
+            and isinstance(tool_result.observed_at, str)
+            and bool(tool_result.observed_at.strip())
+            and returned_order_id == requested_order_id
+            and isinstance(returned_status, str)
+            and bool(returned_status.strip())
+            and (returned_tenant_id is None or returned_tenant_id == identity.tenant_id)
+        )
         self._export_tool_span(
             request_id=request_id,
             trace_id=trace_id,
@@ -181,6 +200,7 @@ class AgentRuntime:
                     "source_id": tool_result.source_id,
                     "external_ref": tool_result.external_ref,
                     "error": tool_result.error,
+                    "provenance_verified": provenance_verified,
                     "tenant_id": identity.tenant_id,
                 },
             )
@@ -196,7 +216,7 @@ class AgentRuntime:
                 identity=identity,
             )
 
-        if tool_result.external_ref != order_id.strip() or not tool_result.source_id:
+        if not provenance_verified:
             return self._finish(
                 status=RunStatus.FAILED,
                 message="The ERP result failed provenance verification.",
@@ -206,9 +226,9 @@ class AgentRuntime:
                 identity=identity,
             )
 
-        status = tool_result.data.get("status", "unknown")
+        status = returned_status
         verified_message = (
-            f"Order {order_id.strip()} is {status}. Observed at {tool_result.observed_at}."
+            f"Order {requested_order_id} is {status}. Observed at {tool_result.observed_at}."
         )
         message = verified_message
         result_status = RunStatus.SUCCEEDED
@@ -225,6 +245,7 @@ class AgentRuntime:
                         payload={
                             "provider": self._model_provider.provider_id,
                             "reason": "external_processing_consent_required",
+                            "external_processing_consent": False,
                             "tenant_id": identity.tenant_id,
                         },
                     )
@@ -236,7 +257,7 @@ class AgentRuntime:
                     completion = self._model_provider.complete(
                         query,
                         {
-                            "order_id": order_id.strip(),
+                            "order_id": requested_order_id,
                             "status": str(status),
                             "source_id": tool_result.source_id,
                             "observed_at": tool_result.observed_at or "",
@@ -296,6 +317,7 @@ class AgentRuntime:
                             payload={
                                 "provider": completion.provider,
                                 "model": completion.model,
+                                "external_processing_consent": True,
                                 "tenant_id": identity.tenant_id,
                             },
                         )

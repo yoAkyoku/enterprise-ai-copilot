@@ -17,6 +17,7 @@ from packages.attachments import (
     AttachmentError,
     AttachmentNotFound,
     AttachmentService,
+    ClamAvScanner,
     BlobStorageError,
     MalwareDetected,
     S3BlobStore,
@@ -84,6 +85,10 @@ class FakeS3Client:
 
     def delete_object(self, *, Bucket: str, Key: str) -> None:
         self.objects.pop((Bucket, Key), None)
+
+    def head_bucket(self, *, Bucket: str) -> None:
+        if Bucket != "copilot-bucket":
+            raise RuntimeError("bucket not found")
 
 
 class AttachmentServiceTests(unittest.TestCase):
@@ -186,6 +191,27 @@ class AttachmentServiceTests(unittest.TestCase):
             blob_store.read("scope/image.png", 2)
         blob_store.delete("scope/image.png")
         self.assertEqual(client.objects, {})
+        self.assertTrue(blob_store.healthcheck())
+
+    def test_attachment_health_checks_scanner_and_blob_store(self) -> None:
+        service = AttachmentService(Path(self.directory.name) / "health")
+        self.assertTrue(service.healthcheck())
+        scanner = ClamAvScanner("clamav.example.test")
+        connection = type(
+            "Connection",
+            (),
+            {
+                "__enter__": lambda self: self,
+                "__exit__": lambda self, *args: None,
+                "settimeout": lambda self, value: None,
+                "sendall": lambda self, data: None,
+                "recv": lambda self, size: b"PONG\0",
+            },
+        )()
+        with patch(
+            "packages.attachments.service.socket.create_connection", return_value=connection
+        ):
+            self.assertTrue(scanner.healthcheck())
 
     def test_attachment_service_can_use_s3_blob_boundary(self) -> None:
         client = FakeS3Client()

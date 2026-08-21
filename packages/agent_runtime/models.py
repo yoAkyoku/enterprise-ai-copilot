@@ -64,6 +64,8 @@ class ToolResult:
     source_id: str | None = None
     observed_at: str | None = None
     external_ref: str | None = None
+    workspace_id: str | None = None
+    tenant_id: str | None = None
     error: str | None = None
 
 

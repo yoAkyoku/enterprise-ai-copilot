@@ -47,7 +47,12 @@ class StreamableHttpMcpGateway:
             opener = urllib.request.build_opener(NoRedirectHandler)
             with opener.open(request, timeout=self._timeout_seconds) as response:
                 healthy = 200 <= response.status < 300
-        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError, OSError):
+        except urllib.error.HTTPError as exc:
+            # Streamable HTTP servers may expose only POST tools/call and
+            # legitimately answer a cheap GET probe with 405. Authentication
+            # and other HTTP failures remain unhealthy.
+            healthy = exc.code == 405
+        except (urllib.error.URLError, TimeoutError, OSError):
             healthy = False
         return {
             "server_id": self.server_id,
@@ -103,6 +108,8 @@ class StreamableHttpMcpGateway:
             source_id = structured.get("source_id")
             observed_at = structured.get("observed_at")
             external_ref = structured.get("external_ref")
+            workspace_id = structured.get("workspace_id")
+            tenant_id = structured.get("tenant_id")
             data = structured.get("data", structured)
             if not isinstance(source_id, str) or not source_id.strip():
                 return ToolResult(success=False, error="remote MCP result is missing provenance")
@@ -112,6 +119,13 @@ class StreamableHttpMcpGateway:
                 return ToolResult(
                     success=False, error="remote MCP result is missing external reference"
                 )
+            if (
+                workspace_id != request.identity.workspace_id
+                or tenant_id != request.identity.tenant_id
+            ):
+                return ToolResult(
+                    success=False, error="remote MCP result scope does not match request"
+                )
             if not isinstance(data, dict):
                 return ToolResult(success=False, error="remote MCP result data is invalid")
             return ToolResult(
@@ -120,6 +134,8 @@ class StreamableHttpMcpGateway:
                 source_id=source_id,
                 observed_at=observed_at,
                 external_ref=external_ref,
+                workspace_id=workspace_id,
+                tenant_id=tenant_id,
             )
         except (UnicodeDecodeError, json.JSONDecodeError, TypeError, ValueError):
             return ToolResult(success=False, error="remote MCP returned invalid JSON")

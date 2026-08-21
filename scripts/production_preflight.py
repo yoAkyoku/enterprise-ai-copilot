@@ -259,10 +259,17 @@ def _static_checks() -> list[Check]:
     return checks
 
 
-def _live_http(name: str, endpoint: str, *, method: str = "GET") -> Check:
-    request = urllib.request.Request(
-        endpoint, headers={"Accept": "application/json"}, method=method
-    )
+def _live_http(
+    name: str,
+    endpoint: str,
+    *,
+    method: str = "GET",
+    bearer_token: str | None = None,
+) -> Check:
+    headers = {"Accept": "application/json"}
+    if bearer_token:
+        headers["Authorization"] = f"Bearer {bearer_token}"
+    request = urllib.request.Request(endpoint, headers=headers, method=method)
     try:
         with urllib.request.build_opener(_NoRedirectHandler).open(request, timeout=5) as response:
             status = int(response.status)
@@ -273,6 +280,41 @@ def _live_http(name: str, endpoint: str, *, method: str = "GET") -> Check:
     # reachable. The protocol/provenance contract is exercised by
     # connector_smoke.py, not by this cheap dependency probe.
     return Check(name, "PASS" if 200 <= status < 400 or status == 405 else "FAIL", f"HTTP {status}")
+
+
+def _live_s3() -> Check:
+    """Probe the configured bucket without reading or writing an object."""
+
+    try:
+        import boto3
+        from botocore.config import Config
+
+        from packages.attachments import S3BlobStore
+
+        endpoint = _endpoint("AGENT_S3_ENDPOINT", "AGENT_S3_ALLOWED_HOSTS", "S3")
+        store = S3BlobStore(
+            boto3.client(
+                "s3",
+                endpoint_url=endpoint,
+                region_name=_value("AGENT_S3_REGION") or None,
+                config=Config(
+                    connect_timeout=5,
+                    read_timeout=5,
+                    retries={"max_attempts": 2, "mode": "standard"},
+                ),
+            ),
+            _value("AGENT_S3_BUCKET"),
+            prefix=_value("AGENT_S3_PREFIX") or "attachments",
+            kms_key_id=_value("AGENT_S3_KMS_KEY_ID") or None,
+        )
+        healthy = store.healthcheck()
+        return Check(
+            "live.s3",
+            "PASS" if healthy else "FAIL",
+            "HeadBucket response received" if healthy else "bucket is unavailable",
+        )
+    except Exception as exc:  # noqa: BLE001 - report only a safe exception type
+        return Check("live.s3", "FAIL", type(exc).__name__)
 
 
 class _NoRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -304,7 +346,9 @@ def _live_checks() -> list[Check]:
     try:
         checks.append(
             _live_http(
-                "live.mcp", _endpoint("AGENT_MCP_ENDPOINT", "AGENT_MCP_ALLOWED_HOSTS", "MCP")
+                "live.mcp",
+                _endpoint("AGENT_MCP_ENDPOINT", "AGENT_MCP_ALLOWED_HOSTS", "MCP"),
+                bearer_token=_value("AGENT_MCP_BEARER_TOKEN"),
             )
         )
     except ValueError as exc:
@@ -318,6 +362,35 @@ def _live_checks() -> list[Check]:
         )
     except ValueError:
         pass
+    for name, endpoint_name, allowlist_name, label, bearer_name, default_path in (
+        (
+            "live.model",
+            "AGENT_MODEL_ENDPOINT",
+            "AGENT_MODEL_ALLOWED_HOSTS",
+            "model",
+            "AGENT_MODEL_API_KEY",
+            "/v1/chat/completions",
+        ),
+        (
+            "live.trace",
+            "AGENT_TRACE_ENDPOINT",
+            "AGENT_TRACE_ALLOWED_HOSTS",
+            "trace exporter",
+            "AGENT_TRACE_BEARER_TOKEN",
+            "/v1/traces",
+        ),
+    ):
+        try:
+            checks.append(
+                _live_http(
+                    name,
+                    _endpoint(endpoint_name, allowlist_name, label, default_path),
+                    bearer_token=_value(bearer_name),
+                )
+            )
+        except ValueError as exc:
+            checks.append(Check(name, "FAIL", str(exc)))
+    checks.append(_live_s3())
     try:
         from packages.attachments import ClamAvScanner
 
@@ -342,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--live",
         action="store_true",
-        help="also probe configured Redis, MCP, OIDC and ClamAV endpoints",
+        help="also probe configured Redis, MCP, OIDC, model, trace, S3 and ClamAV endpoints",
     )
     parser.add_argument("--json", action="store_true", help="emit machine-readable JSON")
     args = parser.parse_args(argv)

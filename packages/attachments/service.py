@@ -114,6 +114,9 @@ class NoopAttachmentScanner:
     def scan(self, data: bytes, content_type: str) -> None:
         del data, content_type
 
+    def healthcheck(self) -> bool:
+        return True
+
 
 class ClamAvScanner:
     """Scan bytes with a local or private ClamAV ``clamd`` INSTREAM socket."""
@@ -156,6 +159,21 @@ class ClamAvScanner:
             if "FOUND" in message:
                 raise MalwareDetected("malware scanner rejected the upload")
             raise MalwareScanUnavailable("malware scanner did not confirm the upload")
+
+    def healthcheck(self) -> bool:
+        """Use clamd's no-content PING command for readiness probes."""
+
+        probe_timeout = min(self.timeout_seconds, 3.0)
+        try:
+            with socket.create_connection(
+                (self.host, self.port), timeout=probe_timeout
+            ) as connection:
+                connection.settimeout(probe_timeout)
+                connection.sendall(b"PING\0")
+                response = connection.recv(16)
+        except (OSError, TimeoutError):
+            return False
+        return response.rstrip(b"\0\r\n") == b"PONG"
 
 
 class AttachmentStore(Protocol):
@@ -395,6 +413,20 @@ class AttachmentService:
         self.retention_seconds = retention_days * 86400
         self.requires_scan = self.scanner.scanner_id != "disabled"
         self.storage_mode = self.blob_store.storage_id
+
+    def healthcheck(self) -> bool:
+        """Fail readiness when metadata, blob storage or scanning is unavailable."""
+
+        for component in (self.store, self.blob_store, self.scanner):
+            healthcheck = getattr(component, "healthcheck", None)
+            if healthcheck is None:
+                continue
+            try:
+                if not bool(healthcheck()):
+                    return False
+            except Exception:  # noqa: BLE001 - readiness must fail closed
+                return False
+        return True
 
     @staticmethod
     def _scope_key(identity: IdentityContext) -> str:

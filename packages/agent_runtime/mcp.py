@@ -74,4 +74,6 @@ class InMemoryMcpGateway:
             source_id=f"erpnext:Sales Order:{order_id}",
             observed_at=observed_at,
             external_ref=order_id,
+            workspace_id=request.identity.workspace_id,
+            tenant_id=request.identity.tenant_id,
         )

@@ -520,13 +520,14 @@ def create_app(
     def ready() -> JSONResponse:
         """Report whether configured production dependencies are usable."""
 
+        attachment_health = attachments is not None and component_health(attachments)
         checks = {
             "auth": auth_mode in {"jwt_hs256", "oidc_jwks"}
             if resolved_platform_env in {"staging", "production"}
             else True,
             "provider": runtime.gateway_health().get("status") == "healthy",
             "model_provider": runtime.model_health().get("status") == "configured",
-            "attachments": attachments is not None,
+            "attachments": attachment_health,
             "object_storage": attachments is not None and attachments.storage_mode == "s3",
             "durable_runs": run_store is not None,
             "approvals": approval_service is not None,
@@ -535,7 +536,7 @@ def create_app(
                 and component_health(audit)
                 and component_health(run_store)
                 and component_health(getattr(approval_service, "store", None))
-                and component_health(getattr(attachments, "store", None))
+                and attachment_health
             ),
             "malware_scanning": attachments is not None and attachments.requires_scan,
             "attachment_retention": attachments is not None and attachments.retention_seconds > 0,
@@ -970,6 +971,7 @@ def create_app(
                 "provider": result.provider,
                 "model": result.model,
                 "observed_at": result.observed_at,
+                "external_processing_consent": request.allow_external_processing,
                 "sha256": record.sha256,
             },
             request_id=getattr(http_request.state, "request_id", None),
@@ -1091,6 +1093,7 @@ def build_default_app() -> FastAPI:
             raise RuntimeError("staging and production require AGENT_S3_KMS_KEY_ID")
         try:
             import boto3
+            from botocore.config import Config
 
             from packages.attachments import S3BlobStore
 
@@ -1098,6 +1101,11 @@ def build_default_app() -> FastAPI:
                 "s3",
                 endpoint_url=endpoint or None,
                 region_name=os.getenv("AGENT_S3_REGION") or None,
+                config=Config(
+                    connect_timeout=5,
+                    read_timeout=5,
+                    retries={"max_attempts": 2, "mode": "standard"},
+                ),
             )
             blob_store = S3BlobStore(
                 client,

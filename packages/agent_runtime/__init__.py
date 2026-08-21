@@ -15,7 +15,15 @@ from .limits import InMemoryRateLimiter, RateLimiter, RedisRateLimiter
 from .mcp import InMemoryMcpGateway, McpGateway
 from .mcp_http import StreamableHttpMcpGateway
 from .model import ModelCompletion, ModelProvider, ModelProviderError, OpenAICompatibleModelProvider
-from .models import AuditEvent, IdentityContext, RunResult, RunStatus, ToolDefinition, ToolRisk
+from .models import (
+    AuditEvent,
+    IdentityContext,
+    RunResult,
+    RunStatus,
+    ToolDefinition,
+    ToolResult,
+    ToolRisk,
+)
 from .policy import PolicyDecision, PolicyEngine
 from .runs import RunStore, SQLiteRunStore, StoredRun
 from .runtime import AgentRuntime
@@ -54,5 +62,6 @@ __all__ = [
     "StoredRun",
     "StreamableHttpMcpGateway",
     "ToolDefinition",
+    "ToolResult",
     "ToolRisk",
 ]

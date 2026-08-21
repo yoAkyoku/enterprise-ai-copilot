@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import os
+import sys
+from types import ModuleType
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from scripts.production_preflight import _static_checks, main
+from scripts.production_preflight import _live_s3, _static_checks, main
 
 
 class ProductionPreflightTests(unittest.TestCase):
@@ -67,6 +70,32 @@ class ProductionPreflightTests(unittest.TestCase):
     def test_cli_json_returns_failure_for_local_defaults(self) -> None:
         with patch.dict(os.environ, {}, clear=True):
             self.assertEqual(main(["--json"]), 1)
+
+    def test_live_s3_uses_read_only_bucket_probe(self) -> None:
+        class FakeS3Client:
+            def head_bucket(self, *, Bucket: str) -> None:
+                self.bucket = Bucket
+
+        client = FakeS3Client()
+        fake_boto3 = SimpleNamespace(client=lambda service, **kwargs: client)
+        fake_botocore = ModuleType("botocore")
+        fake_botocore_config = ModuleType("botocore.config")
+        fake_botocore_config.Config = lambda **kwargs: kwargs  # type: ignore[attr-defined]
+        fake_botocore.config = fake_botocore_config  # type: ignore[attr-defined]
+        with (
+            patch.dict(os.environ, self._environment(), clear=True),
+            patch.dict(
+                sys.modules,
+                {
+                    "boto3": fake_boto3,
+                    "botocore": fake_botocore,
+                    "botocore.config": fake_botocore_config,
+                },
+            ),
+        ):
+            check = _live_s3()
+        self.assertEqual(check.status, "PASS")
+        self.assertEqual(client.bucket, "copilot-prod")
 
 
 if __name__ == "__main__":

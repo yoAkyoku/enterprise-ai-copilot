@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from packages.agent_runtime import (
     AgentRuntime,
@@ -10,6 +11,7 @@ from packages.agent_runtime import (
     InMemoryMcpGateway,
     PolicyEngine,
     RunStatus,
+    ToolResult,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -85,6 +87,34 @@ class VerticalSliceTests(unittest.TestCase):
 
         self.assertEqual(result.status, RunStatus.FAILED)
         self.assertIn("could not be verified", result.message)
+
+    def test_runtime_rejects_mcp_result_with_wrong_scope_or_record_identity(self) -> None:
+        gateway = InMemoryMcpGateway(
+            {
+                ("tenant-a", "SO-1001"): {
+                    "order_id": "SO-1001",
+                    "status": "in_transit",
+                }
+            }
+        )
+        runtime = AgentRuntime(PolicyEngine(gateway.definitions), gateway, AuditLog())
+        mismatched = ToolResult(
+            success=True,
+            data={"order_id": "SO-1001", "status": "delivered", "tenant_id": "tenant-b"},
+            source_id="erp:SO-1001",
+            observed_at="2026-08-21T00:00:00+00:00",
+            external_ref="SO-1001",
+            workspace_id="workspace-a",
+            tenant_id="tenant-b",
+        )
+        with patch.object(gateway, "call", return_value=mismatched):
+            result = runtime.run(
+                "Where is my order?",
+                IdentityContext("user-a", "workspace-a", "tenant-a", "customer"),
+                order_id="SO-1001",
+            )
+        self.assertEqual(result.status, RunStatus.FAILED)
+        self.assertIn("provenance", result.message)
 
     def test_identity_is_required(self) -> None:
         runtime, audit = make_runtime()

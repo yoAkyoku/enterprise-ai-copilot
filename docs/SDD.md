@@ -400,10 +400,21 @@ Subagent 的結果 MUST 經過 schema validation 與 evidence verification，不
 
 MCP Gateway MUST implement server registry、tool allowlist、tool schema validation、timeout、retry policy、health check、credential isolation、rate limit、audit and provenance。
 
+Successful tool results MUST echo the trusted workspace and tenant scope injected
+by the runtime, carry the requested record identity and provenance, and be
+rejected before a run is marked successful when any of those values disagree.
+A remote MCP readiness probe MAY receive HTTP 405 from a POST-only tool
+endpoint; that means the endpoint is reachable. Authentication, redirect,
+transport and other HTTP failures remain unhealthy.
+
 Remote MCP、OIDC/JWKS、Vision/OCR and object-storage endpoints MUST use HTTPS,
 an exact host allowlist, literal private/loopback/metadata host rejection,
 no-redirect transport and bounded response reads. Custom ports are preserved
 only after the same endpoint validation.
+
+Production readiness MUST probe metadata storage, object storage and the
+configured malware scanner; configuration presence alone is not sufficient for
+`/ready`.
 
 Text model calls MUST use a reviewed provider adapter, send only server-verified
 evidence, require explicit per-request or per-schedule external-processing

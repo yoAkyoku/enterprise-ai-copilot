@@ -56,7 +56,7 @@
   function renderActivity(recent) {
     const labels = { "run.created": "Run created", "tool.completed": "MCP evidence returned", "run.succeeded": "Run verified", "attachment.created": "Image evidence stored", "attachment.deleted": "Image evidence removed" };
     const icons = { "run.created": "＋", "tool.completed": "⌘", "run.succeeded": "✓", "attachment.created": "▧", "attachment.deleted": "×" };
-    const items = (recent || []).slice().reverse().map((event) => `<div class="activity-item"><span class="activity-icon">${icons[event] || "•"}</span><div class="activity-body"><strong>${escapeHtml(labels[event] || event)}</strong><small>Policy and scope checks recorded</small></div><span class="activity-time">just now</span></div>`).join("");
+    const items = (recent || []).slice().reverse().map((event) => `<div class="activity-item"><span class="activity-icon">${escapeHtml(icons[event] || "•")}</span><div class="activity-body"><strong>${escapeHtml(labels[event] || event)}</strong><small>Policy and scope checks recorded</small></div><span class="activity-time">just now</span></div>`).join("");
     $("#activity-list").innerHTML = items || `<div class="empty-state">No events received yet. Launch a read-only run to see its trace.</div>`;
   }
 
