@@ -93,12 +93,12 @@ jobs:
           docker compose logs
           exit 1
       - name: Scan container image
-        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
-        with:
-          version: v0.57.1
-          cache: false
-      - name: Run container vulnerability scan
-        run: trivy image --exit-code 1 --ignore-unfixed --vuln-type os,library --severity HIGH,CRITICAL enterprise-ai-copilot:ci
+        run: >-
+          docker run --rm
+          -v /var/run/docker.sock:/var/run/docker.sock
+          docker.io/aquasec/trivy@sha256:5c59e08f980b5d4d503329773480fcea2c9bdad7e381d846fbf9f2ecb8050f6b
+          image --exit-code 1 --ignore-unfixed --vuln-type os,library
+          --severity HIGH,CRITICAL enterprise-ai-copilot:ci
       - name: Stop stack
         if: always()
         run: docker compose down -v
