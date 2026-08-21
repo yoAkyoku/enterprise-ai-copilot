@@ -470,6 +470,11 @@ Approval MUST snapshot：
 
 核准後的實際參數若與 snapshot 不一致，必須重新審批。
 
+Approval token 本身不是授權證據。Policy 只能透過注入且與 durable
+`ApprovalService` 綁定的 verifier，依 workspace、tenant、approval id、tool
+name 與 normalized arguments 驗證後才可放行；缺少 verifier 或任一欄位不符時
+必須維持 `approval_required`。
+
 ### 8.3 Sandbox
 
 預設限制：

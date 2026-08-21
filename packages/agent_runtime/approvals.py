@@ -56,6 +56,7 @@ class ApprovalNotFound(LookupError):
 class ApprovalStatus:
     PENDING = "pending"
     APPROVED = "approved"
+    CONSUMED = "consumed"
     REJECTED = "rejected"
     EXPIRED = "expired"
 
@@ -119,6 +120,16 @@ class ApprovalStore(Protocol):
         token_hash: str | None,
     ) -> ApprovalRecord | None:
         """Atomically transition a pending record."""
+
+    def consume(
+        self,
+        approval_id: str,
+        *,
+        workspace_id: str,
+        tenant_id: str,
+        token_hash: str,
+    ) -> bool:
+        """Atomically consume one approved token."""
 
     def close(self) -> None:
         """Close a durable store."""
@@ -204,6 +215,30 @@ class InMemoryApprovalStore:
             if token_hash:
                 self._token_hashes[approval_id] = token_hash
             return updated
+
+    def consume(
+        self,
+        approval_id: str,
+        *,
+        workspace_id: str,
+        tenant_id: str,
+        token_hash: str,
+    ) -> bool:
+        with self._lock:
+            record = self.get(approval_id, workspace_id=workspace_id, tenant_id=tenant_id)
+            stored_hash = self._token_hashes.get(approval_id)
+            if (
+                record is None
+                or record.status != ApprovalStatus.APPROVED
+                or stored_hash is None
+                or not hmac.compare_digest(stored_hash, token_hash)
+            ):
+                return False
+            self._records[approval_id] = ApprovalRecord(
+                **{**record.__dict__, "status": ApprovalStatus.CONSUMED}
+            )
+            self._token_hashes.pop(approval_id, None)
+            return True
 
     def token_hash(self, approval_id: str, *, workspace_id: str, tenant_id: str) -> str | None:
         with self._lock:
@@ -374,6 +409,31 @@ class SQLiteApprovalStore:
                 return None
         return self.get(approval_id, workspace_id=workspace_id, tenant_id=tenant_id)
 
+    def consume(
+        self,
+        approval_id: str,
+        *,
+        workspace_id: str,
+        tenant_id: str,
+        token_hash: str,
+    ) -> bool:
+        with self._lock:
+            cursor = self._connection.execute(
+                "UPDATE approval_requests SET status = ?, token_hash = NULL "
+                "WHERE id = ? AND workspace_id = ? AND tenant_id = ? "
+                "AND status = ? AND token_hash = ?",
+                (
+                    ApprovalStatus.CONSUMED,
+                    approval_id,
+                    workspace_id,
+                    tenant_id,
+                    ApprovalStatus.APPROVED,
+                    token_hash,
+                ),
+            )
+            self._connection.commit()
+            return cursor.rowcount == 1
+
     def token_hash(self, approval_id: str, *, workspace_id: str, tenant_id: str) -> str | None:
         with self._lock:
             row = self._connection.execute(
@@ -513,6 +573,38 @@ class ApprovalService:
             return False
         token_hash = self._stored_token_hash(approval_id, identity)
         return token_hash is not None and hmac.compare_digest(token_hash, self._hash_token(token))
+
+    def verify_and_consume(
+        self,
+        identity: IdentityContext,
+        approval_id: str,
+        token: str,
+        *,
+        tool_name: str,
+        arguments: Mapping[str, object],
+    ) -> bool:
+        """Verify and atomically consume a token for one high-risk action."""
+
+        if not self.verify(
+            identity,
+            approval_id,
+            token,
+            tool_name=tool_name,
+            arguments=arguments,
+        ):
+            return False
+        token_hash = self._hash_token(token)
+        consumer = getattr(self.store, "consume", None)
+        if consumer is None:
+            return False
+        return bool(
+            consumer(
+                approval_id,
+                workspace_id=identity.workspace_id,
+                tenant_id=identity.tenant_id,
+                token_hash=token_hash,
+            )
+        )
 
     def pending_count(self, identity: IdentityContext) -> int:
         return sum(

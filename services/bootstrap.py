@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Mapping
 from pathlib import Path
 
 from packages.agent_runtime import (
@@ -11,6 +12,7 @@ from packages.agent_runtime import (
     AuditLog,
     IdentityContext,
     InMemoryMcpGateway,
+    ApprovalService,
     McpGateway,
     ModelProvider,
     OpenAICompatibleModelProvider,
@@ -95,6 +97,7 @@ def build_runtime(
     audit: AuditLog | None = None,
     trace_exporter: TraceExporter | None = None,
     model_provider: ModelProvider | None = None,
+    approval_service: ApprovalService | None = None,
 ) -> tuple[AgentRuntime, AuditLog]:
     seed_path = Path(__file__).resolve().parents[1] / "data" / "demo" / "orders.json"
     if seed_path.is_file():
@@ -125,9 +128,28 @@ def build_runtime(
     configured_model = model_provider
     if configured_model is None:
         configured_model = build_model_provider()
+    approval_verifier = None
+    if approval_service is not None:
+
+        def verify_approval(
+            identity: IdentityContext,
+            approval_id: str,
+            token: str,
+            tool_name: str,
+            arguments: Mapping[str, object],
+        ) -> bool:
+            return approval_service.verify_and_consume(
+                identity,
+                approval_id,
+                token,
+                tool_name=tool_name,
+                arguments=arguments,
+            )
+
+        approval_verifier = verify_approval
     return (
         AgentRuntime(
-            PolicyEngine(gateway.definitions),
+            PolicyEngine(gateway.definitions, approval_verifier=approval_verifier),
             gateway,
             audit_log,
             trace_exporter=trace_exporter,

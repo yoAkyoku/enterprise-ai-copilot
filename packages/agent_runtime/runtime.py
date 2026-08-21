@@ -66,11 +66,19 @@ class AgentRuntime:
         identity: IdentityContext,
         tool_name: str,
         *,
+        approval_id: str | None = None,
         approval_token: str | None = None,
+        arguments: dict[str, object] | None = None,
     ) -> PolicyDecision:
         """Expose the same policy decision used before any tool call."""
 
-        return self._policy.authorize(identity, tool_name, approval_token=approval_token)
+        return self._policy.authorize(
+            identity,
+            tool_name,
+            approval_id=approval_id,
+            approval_token=approval_token,
+            arguments=arguments,
+        )
 
     def run(
         self,
@@ -81,6 +89,8 @@ class AgentRuntime:
         request_id: str | None = None,
         trace_id: str | None = None,
         allow_external_model_processing: bool = False,
+        approval_id: str | None = None,
+        approval_token: str | None = None,
         cancel_checker: Callable[[], bool] | None = None,
     ) -> RunResult:
         request_id = request_id or f"req-{uuid4()}"
@@ -123,7 +133,13 @@ class AgentRuntime:
                 identity=identity,
             )
 
-        decision = self._policy.authorize(identity, self.tool_name)
+        decision = self._policy.authorize(
+            identity,
+            self.tool_name,
+            approval_id=approval_id,
+            approval_token=approval_token,
+            arguments={"order_id": order_id.strip()},
+        )
         self._audit.append(
             AuditEvent(
                 event_type="policy.decided",

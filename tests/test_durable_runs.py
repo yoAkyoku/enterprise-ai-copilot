@@ -41,6 +41,38 @@ class DurableRunStoreTests(unittest.TestCase):
             finally:
                 reopened.close()
 
+    def test_sqlite_idempotent_save_returns_existing_record_on_unique_race(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            store = SQLiteRunStore(Path(directory) / "platform.sqlite3")
+            try:
+                identity = IdentityContext("user-a", "workspace-a", "tenant-a", "customer")
+                first = StoredRun(
+                    result=RunResult(
+                        status=RunStatus.SUCCEEDED,
+                        run_id="run-first",
+                        trace_id="trace-first",
+                        agent_id="customer-service-agent",
+                        message="verified",
+                    ),
+                    identity=identity,
+                    idempotency_key="same-key",
+                )
+                duplicate = StoredRun(
+                    result=RunResult(
+                        status=RunStatus.FAILED,
+                        run_id="run-duplicate",
+                        trace_id="trace-duplicate",
+                        agent_id="customer-service-agent",
+                        message="must not replace existing result",
+                    ),
+                    identity=identity,
+                    idempotency_key="same-key",
+                )
+                self.assertEqual(store.save(first), first)
+                self.assertEqual(store.save(duplicate), first)
+            finally:
+                store.close()
+
     def test_api_reads_run_and_idempotency_after_restart(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "platform.sqlite3"

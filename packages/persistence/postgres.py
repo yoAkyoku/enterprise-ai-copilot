@@ -450,6 +450,37 @@ class PostgresApprovalStore(_PostgresStore):
             return None
         return self.get(approval_id, workspace_id=workspace_id, tenant_id=tenant_id)
 
+    def consume(
+        self,
+        approval_id: str,
+        *,
+        workspace_id: str,
+        tenant_id: str,
+        token_hash: str,
+    ) -> bool:
+        with self._lock:
+            try:
+                with self._connection.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE approval_requests SET status = %s, token_hash = NULL "
+                        "WHERE id = %s AND workspace_id = %s AND tenant_id = %s "
+                        "AND status = %s AND token_hash = %s",
+                        (
+                            ApprovalStatus.CONSUMED,
+                            approval_id,
+                            workspace_id,
+                            tenant_id,
+                            ApprovalStatus.APPROVED,
+                            token_hash,
+                        ),
+                    )
+                    changed = cursor.rowcount
+                self._connection.commit()
+            except Exception:
+                self._connection.rollback()
+                raise
+        return changed == 1
+
     def token_hash(self, approval_id: str, *, workspace_id: str, tenant_id: str) -> str | None:
         with self._lock, self._connection.cursor() as cursor:
             cursor.execute(

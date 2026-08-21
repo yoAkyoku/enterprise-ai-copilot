@@ -96,28 +96,39 @@ class SQLiteRunStore:
 
     def save(self, run: StoredRun) -> StoredRun:
         with self._lock:
-            self._connection.execute(
-                "INSERT INTO agent_runs "
-                "(run_id, status, trace_id, agent_id, message, source_id, observed_at, external_ref, "
-                "user_id, workspace_id, tenant_id, role, idempotency_key, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
-                (
-                    run.result.run_id,
-                    run.result.status.value,
-                    run.result.trace_id,
-                    run.result.agent_id,
-                    run.result.message,
-                    run.result.source_id,
-                    run.result.observed_at,
-                    run.result.external_ref,
-                    run.identity.user_id,
-                    run.identity.workspace_id,
-                    run.identity.tenant_id,
-                    run.identity.role,
-                    run.idempotency_key,
-                ),
-            )
-            self._connection.commit()
+            try:
+                self._connection.execute(
+                    "INSERT INTO agent_runs "
+                    "(run_id, status, trace_id, agent_id, message, source_id, observed_at, external_ref, "
+                    "user_id, workspace_id, tenant_id, role, idempotency_key, created_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+                    (
+                        run.result.run_id,
+                        run.result.status.value,
+                        run.result.trace_id,
+                        run.result.agent_id,
+                        run.result.message,
+                        run.result.source_id,
+                        run.result.observed_at,
+                        run.result.external_ref,
+                        run.identity.user_id,
+                        run.identity.workspace_id,
+                        run.identity.tenant_id,
+                        run.identity.role,
+                        run.idempotency_key,
+                    ),
+                )
+                self._connection.commit()
+            except sqlite3.IntegrityError:
+                self._connection.rollback()
+                if run.idempotency_key:
+                    existing = self.find_idempotent(
+                        run.identity,
+                        run.idempotency_key,
+                    )
+                    if existing is not None:
+                        return existing
+                raise
         return run
 
     def get(self, run_id: str, identity: IdentityContext) -> StoredRun | None:

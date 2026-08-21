@@ -53,6 +53,10 @@ are not silently claimed as executed in the synthetic release.
 The text-model boundary uses the same OpenAI-compatible contract. It receives
 only a user query plus server-verified evidence, requires explicit
 `allow_external_processing` consent, and labels returned prose as unverified.
+High-risk tool authorization is also fail-closed: an approval token is not
+accepted as proof by itself. A configured runtime must bind policy to the
+durable, workspace/tenant- and argument-scoped approval verifier before a
+write-class tool can run.
 The production Compose profile starts the API, a PostgreSQL migration job, a
 Redis-backed schedule producer, a continuous worker, Redis and PostgreSQL;
 replace the example environment with secret-managed values before use.

@@ -24,6 +24,11 @@ All notable changes are documented here.
 - Added durable Redis cooperative cancellation for scheduled runs, including
   idempotent operator cancellation and cancellation checks before the next ERP
   or model operation.
+- Hardened high-risk policy authorization so an arbitrary approval token cannot
+  grant access; only a durable, scope- and argument-bound approval verifier may
+  authorize a write-class tool.
+- Made SQLite idempotent run persistence return the existing scoped record on a
+  unique-key race, matching the shared PostgreSQL adapter's retry behavior.
 - Added tenant-scoped audit reads, pinned PostgreSQL CI services, hosted
   PostgreSQL integration/backup recovery smoke and backup-wrapper tests.
 - Improved the Web console's dynamic runtime counts, date/status copy and

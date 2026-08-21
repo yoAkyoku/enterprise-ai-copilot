@@ -600,6 +600,7 @@ def create_app(
         if approval_status is not None and approval_status not in {
             ApprovalStatus.PENDING,
             ApprovalStatus.APPROVED,
+            ApprovalStatus.CONSUMED,
             ApprovalStatus.REJECTED,
             ApprovalStatus.EXPIRED,
         }:
@@ -1020,8 +1021,18 @@ def build_default_app() -> FastAPI:
         else SqliteAuditStore(data_dir / "agent-platform.sqlite3")
     )
     audit = AuditLog(store=audit_store)
+    approval_service = ApprovalService(
+        PostgresApprovalStore(database_url)
+        if storage_mode == "postgres"
+        else SQLiteApprovalStore(data_dir / "agent-platform.sqlite3")
+    )
+    atexit.register(approval_service.close)
     trace_exporter = build_trace_exporter(platform_env)
-    runtime, _ = build_runtime(audit=audit, trace_exporter=trace_exporter)
+    runtime, _ = build_runtime(
+        audit=audit,
+        trace_exporter=trace_exporter,
+        approval_service=approval_service,
+    )
     attachment_root = Path(os.getenv("AGENT_ATTACHMENT_ROOT", str(data_dir / "attachments")))
     attachment_db = Path(os.getenv("AGENT_ATTACHMENT_DB", str(data_dir / "attachments.sqlite3")))
     max_bytes = int(os.getenv("AGENT_ATTACHMENT_MAX_BYTES", "10485760"))
@@ -1176,12 +1187,6 @@ def build_default_app() -> FastAPI:
         else SQLiteRunStore(data_dir / "agent-platform.sqlite3")
     )
     atexit.register(run_store.close)
-    approval_service = ApprovalService(
-        PostgresApprovalStore(database_url)
-        if storage_mode == "postgres"
-        else SQLiteApprovalStore(data_dir / "agent-platform.sqlite3")
-    )
-    atexit.register(approval_service.close)
     atexit.register(audit_store.close)
     auth_mode = os.getenv("AGENT_AUTH_MODE", "bearer")
     oidc_allowed_hosts = [
