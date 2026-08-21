@@ -56,10 +56,12 @@ only a user query plus server-verified evidence, requires explicit
 The production Compose profile starts the API, a PostgreSQL migration job, a
 Redis-backed schedule producer, a continuous worker, Redis and PostgreSQL;
 replace the example environment with secret-managed values before use.
-Run `python scripts/production_preflight.py --json` before startup. The
-checked-in production profile uses PostgreSQL for shared metadata. SQLite is
-still available only as an explicitly selected single-node deployment; do not
-share its volume across API replicas.
+Run `python scripts/production_preflight.py --json` before startup, then use
+`--live` after dependencies are reachable to probe Redis, authenticated MCP,
+OIDC, model, trace, S3 and ClamAV boundaries. The checked-in production profile
+uses PostgreSQL for shared metadata. SQLite is still available only as an
+explicitly selected single-node deployment; do not share its volume across API
+replicas.
 
 Multi-replica staging/production also requires `AGENT_REDIS_URL`; the API uses
 an atomic Redis limiter for upload and Vision/OCR abuse controls. Development

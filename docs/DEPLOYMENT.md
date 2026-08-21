@@ -117,7 +117,11 @@ For an explicitly selected single-node SQLite deployment, use
 `python scripts/migrate.py .data/agent-platform.sqlite3` instead.
 
 Before `up`, run the static preflight using the secret-managed environment;
-after dependencies are reachable, add `--live`:
+after dependencies are reachable, add `--live`. The live mode sends only
+bounded read-oriented probes: authenticated HTTP reachability for MCP/model/
+trace, OIDC JWKS reachability, Redis PING, S3 `HeadBucket` and a bounded ClamAV
+INSTREAM smoke payload. It does not claim backup/restore, model correctness or
+external business-data correctness:
 
 ```powershell
 python scripts/production_preflight.py --json
