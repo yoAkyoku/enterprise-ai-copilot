@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import unittest
+from typing import Self
 from unittest.mock import patch
 
 from packages.agent_runtime import (
@@ -23,7 +24,7 @@ class _Response:
     def __init__(self, body: dict[str, object]) -> None:
         self._body = json.dumps(body).encode("utf-8")
 
-    def __enter__(self) -> _Response:
+    def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *_args: object) -> None:
