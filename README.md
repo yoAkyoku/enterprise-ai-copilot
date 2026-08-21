@@ -56,7 +56,7 @@ only a user query plus server-verified evidence, requires explicit
 The production Compose profile starts the API, a PostgreSQL migration job, a
 Redis-backed schedule producer, a continuous worker, Redis and PostgreSQL;
 replace the example environment with secret-managed values before use.
-Run `python scripts/production_preflight.py --json` before startup, then use
+Run `python -m scripts.production_preflight --json` before startup, then use
 `--live` after dependencies are reachable to probe Redis, authenticated MCP,
 OIDC, model, trace, S3 and ClamAV boundaries. The checked-in production profile
 uses PostgreSQL for shared metadata. SQLite is still available only as an
@@ -100,6 +100,7 @@ filesystem adapter.
 - [Production deployment runbook](docs/DEPLOYMENT.md)
 - [Release checklist](docs/release/v0.1.0-dev.md)
 - [Production-track checklist](docs/release/v0.2.0-production-track.md)
+- [Protected production acceptance](docs/PRODUCTION_ACCEPTANCE.md)
 - [Validation evidence](docs/validation/evidence-index.csv)
 
 ## Status

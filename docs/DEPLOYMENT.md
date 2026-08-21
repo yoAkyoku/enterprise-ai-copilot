@@ -124,8 +124,8 @@ INSTREAM smoke payload. It does not claim backup/restore, model correctness or
 external business-data correctness:
 
 ```powershell
-python scripts/production_preflight.py --json
-python scripts/production_preflight.py --live
+python -m scripts.production_preflight --json
+python -m scripts.production_preflight --live
 ```
 
 The live connector smoke is intentionally separate because it can make model
@@ -133,13 +133,20 @@ calls and creates one temporary encrypted object. Run it only from an
 operator-controlled host with a disposable worker identity:
 
 ```powershell
-python scripts/connector_smoke.py --confirm-live --only mcp
-python scripts/connector_smoke.py --confirm-live --only all
+python -m scripts.connector_smoke --confirm-live --only mcp
+python -m scripts.connector_smoke --confirm-live --only all
 ```
 
 Capture the JSON preflight output, smoke output, image digest, dependency
 versions and target timestamps in `docs/validation/evidence-index.csv`. A
 successful command with synthetic credentials is not production evidence.
+
+For the complete target-environment acceptance, use the protected manual
+GitHub workflow documented in [PRODUCTION_ACCEPTANCE.md](PRODUCTION_ACCEPTANCE.md).
+It tests the deployed API with two real OIDC bearer tokens, verifies
+workspace/tenant isolation for runs and attachments, and cleans up its
+synthetic attachment fixtures. It is not an automatic deployment workflow and
+must be approved through the configured GitHub Environment.
 
 The API exposes authenticated `/metrics`. Forward only privacy-safe metrics and
 OTLP spans to the monitoring system. Preserve `X-Request-Id`, trace, run,

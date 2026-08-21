@@ -176,6 +176,8 @@ class VerticalSliceTests(unittest.TestCase):
             "MANIFEST.in",
             "scripts/production_preflight.py",
             "scripts/connector_smoke.py",
+            "scripts/api_acceptance_smoke.py",
+            ".github/workflows/production-acceptance.yml",
             "scripts/check_release_version.py",
             "scripts/migrate_postgres.py",
             "scripts/backup_postgres.py",

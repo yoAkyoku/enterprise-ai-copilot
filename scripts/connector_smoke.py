@@ -13,7 +13,8 @@ import os
 from datetime import UTC, datetime
 from uuid import uuid4
 
-from packages.agent_runtime import IdentityContext, ToolCallRequest
+from packages.agent_runtime import IdentityContext
+from packages.agent_runtime.models import ToolCallRequest
 from packages.agent_runtime.network import validated_https_endpoint
 from packages.attachments import ClamAvScanner, S3BlobStore
 from packages.observability import OtlpHttpTraceExporter, TraceRecord
@@ -28,8 +29,15 @@ def _require(value: str, name: str) -> str:
     return value.strip()
 
 
+def _smoke_order_id() -> str:
+    order_id = os.getenv("AGENT_ACCEPTANCE_ORDER_ID", "SMOKE-0001").strip()
+    if not order_id or len(order_id) > 128:
+        raise RuntimeError("AGENT_ACCEPTANCE_ORDER_ID is invalid")
+    return order_id
+
+
 def _model() -> None:
-    provider = build_model_provider("development")
+    provider = build_model_provider(os.getenv("AGENT_PLATFORM_ENV", "development"))
     if provider is None:
         raise RuntimeError("model provider is not configured")
     result = provider.complete(
@@ -63,6 +71,7 @@ def _mcp() -> None:
         _require(os.getenv("AGENT_WORKER_TENANT_ID", ""), "AGENT_WORKER_TENANT_ID"),
         _require(os.getenv("AGENT_WORKER_ROLE", ""), "AGENT_WORKER_ROLE"),
     )
+    order_id = _smoke_order_id()
     result = gateway.call(
         ToolCallRequest(
             request_id=f"smoke-{uuid4().hex}",
@@ -70,7 +79,7 @@ def _mcp() -> None:
             run_id=f"smoke-{uuid4().hex}",
             identity=identity,
             tool_name="erp.get_order_status",
-            arguments={"order_id": "SMOKE-0001"},
+            arguments={"order_id": order_id},
             idempotency_key=f"smoke-{uuid4().hex}",
         )
     )

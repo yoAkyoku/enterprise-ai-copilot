@@ -164,6 +164,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | EXT-006 | untrusted package | package from unknown source is quarantined or blocked |
 | EXT-007 | self-learning | generated Skill is proposal-only in production mode |
 | EXT-008 | export/import | package imported into a clean environment is equivalent |
+| EXT-009 | protected acceptance | manual target workflow uses protected environment secrets and emits redacted evidence |
 
 ### 6.7 Scheduler and long-running work
 
@@ -226,6 +227,7 @@ Default CI MUST use fake providers and deterministic fixtures. Live provider tes
 | API-002 | error states | blocked, approval, partial and external-pending states are explicit |
 | API-003 | idempotency | repeated client request is safe |
 | API-004 | resource limits | upload and provider-analysis endpoints enforce bounded body size and rate limits |
+| API-005 | deployed scope | two real bearer principals cannot read each other's runs or attachments |
 | UI-001 | approval UX | user sees exact action, target, arguments and risk |
 | UI-002 | trace UX | internal user can inspect Agent, Tool, source and policy result |
 | UI-003 | customer UX | customer cannot see internal secrets or hidden prompts |
@@ -304,6 +306,27 @@ Failure conditions:
 4. Duplicate scheduler delivery produces one effective run.
 5. Notification is sent only when findings or failures exist.
 6. Run history and evidence are retained.
+
+### E2E-005 Protected target acceptance
+
+Given a provisioned target deployment and two short-lived OIDC principals with
+different workspace/tenant scopes, the protected manual acceptance workflow
+MUST:
+
+1. Verify `/health` and `/ready` on the target API.
+2. Verify that the API reports the workspace and tenant claims established by
+   each bearer token, without sending identity headers.
+3. Execute one reviewed ERP order read through the deployed API and verify the
+   owning principal can retrieve its run while the other principal receives
+   `404`.
+4. Upload one synthetic image for each principal, verify owner read/content,
+   verify cross-scope metadata/content return `404`, and delete both fixtures.
+5. Run the configured MCP, model, Vision/OCR, S3, ClamAV and OTLP smoke checks
+   with bounded timeouts and record only redacted status evidence.
+
+The workflow run, target environment, image digest, provider versions and
+timestamps MUST be bound to the exact commit in the evidence index. A local
+or synthetic run cannot satisfy this check.
 
 ## 8. CI workflow requirements
 
@@ -394,9 +417,9 @@ Required:
 | SDD area | Validation IDs |
 |---|---|
 | Instruction hierarchy and manifests | `CONF-*`, `EXT-001`, `EXT-002` |
-| Agent Runtime | `AGT-*`, `API-*`, `OBS-*` |
+| Agent Runtime | `AGT-*`, `API-*`, `OBS-*`, `E2E-005` |
 | MCP Gateway | `MCP-*`, `SEC-005`, `SEC-012` |
-| Image evidence and provider egress | `IMG-*`, `API-004`, `SEC-013` |
+| Image evidence and provider egress | `IMG-*`, `API-004`, `API-005`, `SEC-013`, `E2E-005` |
 | Policy and approval | `POL-*`, `E2E-002` |
 | Scheduler | `SCH-*`, `E2E-004` |
 | Memory and RAG | `MEM-*`, `RAG-*`, `E2E-003` |
