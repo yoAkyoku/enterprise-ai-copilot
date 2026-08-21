@@ -8,8 +8,7 @@ from uuid import uuid4
 
 from redis import Redis
 
-from packages.agent_runtime import RunStatus
-from packages.scheduler import RedisJobQueue, Scheduler, load_schedule
+from packages.scheduler import RedisJobQueue, ScheduleStatus, Scheduler, load_schedule
 from services.bootstrap import build_runtime
 from services.worker.executor import (
     AgentScheduleExecutor,
@@ -49,7 +48,7 @@ def main() -> int:
         scheduler = Scheduler()
         scheduler.register(definition)
         run = scheduler.trigger(definition.id, queued_at, executor.execute)
-        _require(run.status is RunStatus.SUCCEEDED, "scheduled Agent did not succeed")
+        _require(run.status is ScheduleStatus.SUCCEEDED, "scheduled Agent did not succeed")
         _require(run.attempts == 1, "scheduled Agent unexpectedly retried")
         _require(received.id == queued.id, "queue changed the scheduled job identity")
         consumer.complete_run(run.idempotency_key, claim.token)
